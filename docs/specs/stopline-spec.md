@@ -601,7 +601,7 @@ Codex hooks are configured in `~/.codex/hooks.json` or `.codex/hooks.json`. At t
 ### 12.3 CI and other agents
 
 - `stopline check --base REF --format sarif|json|markdown` works without any agent: CI, pre-commit, or manual use.
-- **GitHub Action** `stopline-dev/stopline-action` (composite): installs with uv, runs `stopline trust --base REF` (trusts only contracts unchanged from the base ref, so a pull request cannot get its own done_when commands run), runs check against the PR base, uploads SARIF to code scanning (free for public repositories), writes a job summary, optionally comments on the PR.
+- **GitHub Action** `Webs4Dev/stopline-action` (composite): installs with uv, runs `stopline trust --base REF` (trusts only contracts unchanged from the base ref, so a pull request cannot get its own done_when commands run), runs check against the PR base, uploads SARIF to code scanning (free for public repositories), writes a job summary, optionally comments on the PR.
 - **pre-commit hook** definition in `.pre-commit-hooks.yaml` (Should).
 
 ## 13. Command-line interface
@@ -1069,7 +1069,7 @@ stopline/
 
 | # | Question | Default if undecided | Decision (4 Nov 2026) |
 |---|---|---|---|
-| Q1 | Final project name and GitHub organisation (stopline is free on PyPI and npm as of 3 Nov 2026; small unrelated GitHub repos use the name). | stopline under a new GitHub org stopline-dev | Accepted default. |
+| Q1 | Final project name and GitHub organisation (stopline is free on PyPI and npm as of 3 Nov 2026; small unrelated GitHub repos use the name). | stopline under Webs4Dev | stopline under Webs4Dev; no separate GitHub organisation. |
 | Q2 | Licence: MIT or Apache-2.0 (adds an explicit patent grant). | MIT | MIT. |
 | Q3 | Default mode for new installs: warn or enforce. | warn | warn. |
 | Q4 | Is Codex support required for v1.0 or acceptable in v1.1? | v1.0 Should; may slip to v1.1 | Accepted default. |
@@ -1171,5 +1171,6 @@ Agent:  builds; Stopline checks every turn; part completes; agent asks what is n
 | 2026-11-04 | 2.1 | 18.1, 18.3: TOML writer changed from tomli-w to tomlkit; ADR 010 added. | tomli-w drops every comment on write, including the `#:schema` line, so FR-CON-07 could not be met. |
 | 2026-11-04 | 2.1 | 23.1: FR-LC-01 split, contract-file half in M1 and trust-record half in M2. | The trust record needs state.db, which arrives in M2. |
 | 2026-11-04 | 2.1 | 9.1: schema path and `#:schema` URL corrected to `src/stopline/schemas/` under `Webs4Dev/stopline`. | The old URL matched neither the section 19 layout nor the real repository, so it would never resolve. |
+| 2026-11-04 | 2.1 | 12.3, 26 (Q1): the GitHub Action and the project now live under Webs4Dev; the plan for a separate GitHub organisation is removed. | Owner decision: keep everything under Webs4Dev. |
 
 Note: `stopline-diagrams.pdf` was not regenerated and still shows spec v2.0. The Mermaid source in this file is current, and where they differ this file wins.
