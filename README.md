@@ -2,7 +2,7 @@
 
 A local guard that tells AI coding agents when a part of the architecture is finished, flags features nobody asked for, and keeps the work inside the plan.
 
-Status: early development (milestone M0). See `docs/stopline-spec.md` for the full specification.
+Status: early development (milestone M0). See `docs/specs/stopline-spec.md` for the full specification.
 
 ## Development setup
 
