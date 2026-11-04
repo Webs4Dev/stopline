@@ -1,0 +1,261 @@
+{
+  "$defs": {
+    "Approval": {
+      "additionalProperties": false,
+      "description": "Written by `part approve`, never by hand.",
+      "properties": {
+        "approved_at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "approved_by": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "hash": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "hash",
+        "approved_by",
+        "approved_at"
+      ],
+      "title": "Approval",
+      "type": "object"
+    },
+    "ApprovedExtra": {
+      "additionalProperties": false,
+      "description": "A feature outside the items that the owner chose to keep.",
+      "properties": {
+        "approved_at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "feature": {
+          "pattern": "^(route|page|function|method|class|component|cli|config|dependency|table):.+$",
+          "type": "string"
+        },
+        "reason": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "feature",
+        "reason",
+        "approved_at"
+      ],
+      "title": "ApprovedExtra",
+      "type": "object"
+    },
+    "Baseline": {
+      "additionalProperties": false,
+      "description": "Written by `part start`, never by hand.",
+      "properties": {
+        "commit": {
+          "pattern": "^[0-9a-f]{7,64}$",
+          "type": "string"
+        },
+        "started_at": {
+          "format": "date-time",
+          "type": "string"
+        }
+      },
+      "required": [
+        "commit",
+        "started_at"
+      ],
+      "title": "Baseline",
+      "type": "object"
+    },
+    "Contract": {
+      "additionalProperties": false,
+      "description": "A part contract, as stored in `.stopline/parts/<id>.toml`.",
+      "properties": {
+        "allow_overlap": {
+          "default": false,
+          "type": "boolean"
+        },
+        "approval": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Approval"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "approved_extras": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ApprovedExtra"
+          },
+          "type": "array"
+        },
+        "baseline": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Baseline"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "id": {
+          "pattern": "^[a-z0-9][a-z0-9-]{0,47}$",
+          "type": "string"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/Item"
+          },
+          "maxItems": 12,
+          "minItems": 1,
+          "type": "array"
+        },
+        "paths": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 20,
+          "minItems": 1,
+          "type": "array"
+        },
+        "schema": {
+          "enum": [
+            1
+          ]
+        },
+        "status": {
+          "$ref": "#/$defs/Status"
+        },
+        "summary": {
+          "maxLength": 300,
+          "minLength": 1,
+          "type": "string"
+        },
+        "title": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "id",
+        "title",
+        "summary",
+        "paths",
+        "status",
+        "items"
+      ],
+      "title": "Contract",
+      "type": "object"
+    },
+    "DoneWhenCommand": {
+      "additionalProperties": false,
+      "description": "Table form of done_when. A shell is used only when `shell = true` is written.",
+      "properties": {
+        "cmd": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "cwd": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "shell": {
+          "default": false,
+          "type": "boolean"
+        },
+        "timeout_s": {
+          "default": 120,
+          "maximum": 900,
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "cmd"
+      ],
+      "title": "DoneWhenCommand",
+      "type": "object"
+    },
+    "Item": {
+      "additionalProperties": false,
+      "description": "One thing the part must deliver.",
+      "properties": {
+        "anchors": {
+          "default": [],
+          "items": {
+            "pattern": "^(route|page|function|method|class|component|cli|config|dependency|table):.+$",
+            "type": "string"
+          },
+          "maxItems": 10,
+          "type": "array"
+        },
+        "desc": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "done_when": {
+          "anyOf": [
+            {
+              "items": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "$ref": "#/$defs/DoneWhenCommand"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "id": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "desc"
+      ],
+      "title": "Item",
+      "type": "object"
+    },
+    "Status": {
+      "description": "The states a part can be in (spec section 8).",
+      "enum": [
+        "abandoned",
+        "active",
+        "approved",
+        "complete",
+        "draft"
+      ],
+      "title": "Status"
+    }
+  },
+  "$id": "https://raw.githubusercontent.com/Webs4Dev/stopline/main/src/stopline/schemas/contract.v1.schema.json",
+  "$ref": "#/$defs/Contract",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}
