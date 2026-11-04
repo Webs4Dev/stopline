@@ -1,0 +1,27 @@
+# Local hooks use the tools pinned in uv.lock (installed in venv/), so the checks
+# run the same versions as `uv run`. Run `venv/bin/pre-commit install` once per clone.
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check
+        entry: venv/bin/ruff check
+        language: system
+        types: [python]
+      - id: ruff-format
+        name: ruff format
+        entry: venv/bin/ruff format --check
+        language: system
+        types: [python]
+      - id: mypy
+        name: mypy
+        entry: venv/bin/mypy
+        language: system
+        types: [python]
+        pass_filenames: false
+      - id: pytest
+        name: pytest
+        entry: venv/bin/pytest -q
+        language: system
+        types: [python]
+        pass_filenames: false
