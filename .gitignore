@@ -1,0 +1,42 @@
+# Secrets (never commit)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+id_rsa*
+id_ed25519*
+client_secret*.json
+token*.json
+credentials*
+*.p12
+*.pfx
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.coverage
+htmlcov/
+.benchmarks/
+
+# Build output
+dist/
+build/
+*.egg-info/
+site/
+
+# Stopline local state (see spec section 15.1)
+.stopline/state.db*
+.stopline/logs/
+.stopline/runs/
+
+# OS and editor
+.DS_Store
+.idea/
+.vscode/
