@@ -346,10 +346,10 @@ Requirements:
 
 ### 9.1 Location and format
 
-One file per part: `.stopline/parts/<id>.toml`. TOML 1.0, UTF-8, committed to git. A JSON Schema is published at `schemas/contract.v1.schema.json` and referenced with a `#:schema` comment so editors (Taplo, VS Code Even Better TOML) validate as you type.
+One file per part: `.stopline/parts/<id>.toml`. TOML 1.0, UTF-8, committed to git. A JSON Schema is published at `src/stopline/schemas/contract.v1.schema.json` and referenced with a `#:schema` comment so editors (Taplo, VS Code Even Better TOML) validate as you type.
 
 ```toml
-#:schema https://raw.githubusercontent.com/stopline-dev/stopline/main/schemas/contract.v1.schema.json
+#:schema https://raw.githubusercontent.com/Webs4Dev/stopline/main/src/stopline/schemas/contract.v1.schema.json
 schema  = 1
 id      = "auth"                       # [a-z0-9-], unique, equals file name
 title   = "Authentication"
@@ -813,7 +813,7 @@ Every choice is free and open source. Version floors are the latest releases che
 | Language | Python 3.11-3.14 | Mature tree-sitter bindings, fast to build and maintain, owner's strongest language; measured cold start fits hook budgets. | Rust (fastest, single binary; slower to build), Go, TypeScript |
 | Parsing | tree-sitter 0.26 + tree-sitter-python 0.25, -typescript 0.23, -javascript 0.25 | One error-tolerant parser for all languages; query files make languages pluggable; handles half-written code mid-edit. | Python `ast` (Python only, fails on syntax errors), language servers (heavy) |
 | Data models | msgspec 0.22 | Fast import and decode (matters in hooks), strict validation, JSON Schema generation, TOML/JSON support. | pydantic v2 (heavier import), dataclasses (no validation) |
-| TOML write | tomli-w 1.2 (read: stdlib tomllib) | Write contracts; stdlib reads. | tomlkit (preserves comments; use if FR-CON-07 needs it) |
+| TOML write | tomlkit 0.15 (read: stdlib tomllib) | Write contracts and keep their comments (FR-CON-07); stdlib reads. Loaded only when writing, never by hooks. | tomli-w (drops all comments on write) |
 | CLI | Typer 0.27 + Rich 15 | Typed commands, generated help, readable output. Loaded only by the CLI entry point, never by hooks. | argparse (more code), Click (Typer builds on it) |
 | Git access | git CLI via subprocess | Always present where agents run; no native build; exact behaviour users know. | pygit2 (libgit2 native dependency), dulwich |
 | Local state | SQLite (stdlib sqlite3) | Zero install, transactional, concurrent-safe with WAL. | JSON files (no concurrency), DuckDB (unneeded) |
@@ -849,6 +849,7 @@ Every choice is free and open source. Version floors are the latest releases che
 | 007 | SQLite for derived state | Concurrency-safe and disposable; nothing authoritative lives there except trust records (FR-CON-08). |
 | 008 | Hooks fail open | A guard that breaks sessions gets uninstalled. |
 | 009 | Warn by default, enforce opt-in | Earn trust before blocking; enforce documented as recommended after a week of warn mode. |
+| 010 | tomlkit over tomli-w | Writes must keep comments, including the `#:schema` line (FR-CON-07). |
 
 ADRs live in `docs/adr/NNN-title.md` (MADR format). New significant decisions require a new ADR.
 
@@ -1011,8 +1012,8 @@ stopline/
 | # | Milestone | Acceptance criteria | Weeks |
 |---|---|---|---|
 | M0 | Foundations: repo, uv project, CI matrix, pre-commit, docs skeleton, ADRs 001-009 | CI green on all OS/Python cells; `uv tool install .` gives a working `stopline --version` | 1 |
-| M1 | Contract model: schema, load/validate/write, hashing, lifecycle, CLI part commands | FR-CON-01..06, FR-LC-01..06 tests pass; JSON Schema published | 2-3 |
-| M2 | Git baseline service, tree hash, state.db with migrations and cache | Integration tests on fixture repos incl. untracked files and renames; trust records and `stopline trust` (FR-CON-08, FR-CON-09) tested | 3-4 |
+| M1 | Contract model: schema, load/validate/write, hashing, lifecycle, CLI part commands | FR-CON-01..06, FR-LC-01 (contract-file half), FR-LC-02..06 tests pass; JSON Schema published | 2-3 |
+| M2 | Git baseline service, tree hash, state.db with migrations and cache | Integration tests on fixture repos incl. untracked files and renames; trust records and `stopline trust` (FR-CON-08, FR-CON-09, FR-LC-01 trust-record half) tested | 3-4 |
 | M3 | Python extractor (all v1.0 kinds) + golden corpus | 150+ golden cases; recall at least 95% on corpus | 4-6 |
 | M4 | TypeScript/JavaScript extractor + manifests + golden corpus | 150+ golden cases per language | 6-8 |
 | M5 | Matcher, policy engine, done_when runner, reporters (text, json, markdown, sarif), check/status/review | End-to-end CLI tests; SARIF validates against schema | 8-9 |
@@ -1167,5 +1168,8 @@ Agent:  builds; Stopline checks every turn; part completes; agent asks what is n
 | 2026-11-04 | 2.1 | FR-CON-06 and 11.2: an item with no anchors and no done_when is never satisfied. | Otherwise a part could complete with nothing built. |
 | 2026-11-04 | 2.1 | FR-CON-08, FR-CON-09, `stopline trust`, `trust` table in state.db, SL004 trigger widened, tree hash excludes `.stopline/`, DB rebuild requires re-trust, GitHub Action trusts only contracts unchanged from the base ref, PreToolUse also denies `pause` and `trust`, 17.2 and ADR-007 updated, M1 and M2 acceptance criteria updated. | status and baseline were outside the approval hash; trust was half-specified; a rebuilt DB or a pull request must not run unapproved commands. |
 | 2026-11-04 | 2.1 | Section 26: owner decisions recorded (Q5 budget still open). | Owner answered the open questions. |
+| 2026-11-04 | 2.1 | 18.1, 18.3: TOML writer changed from tomli-w to tomlkit; ADR 010 added. | tomli-w drops every comment on write, including the `#:schema` line, so FR-CON-07 could not be met. |
+| 2026-11-04 | 2.1 | 23.1: FR-LC-01 split, contract-file half in M1 and trust-record half in M2. | The trust record needs state.db, which arrives in M2. |
+| 2026-11-04 | 2.1 | 9.1: schema path and `#:schema` URL corrected to `src/stopline/schemas/` under `Webs4Dev/stopline`. | The old URL matched neither the section 19 layout nor the real repository, so it would never resolve. |
 
 Note: `stopline-diagrams.pdf` was not regenerated and still shows spec v2.0. The Mermaid source in this file is current, and where they differ this file wins.
