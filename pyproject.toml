@@ -1,0 +1,51 @@
+[project]
+name = "stopline"
+dynamic = ["version"]
+description = "A local guard that tells AI coding agents when a part of the architecture is finished, flags features nobody asked for, and keeps the work inside the plan."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Devansh Shah" }]
+requires-python = ">=3.11"
+dependencies = [
+    "typer>=0.27",
+    "rich>=15",
+]
+
+[project.scripts]
+stopline = "stopline.cli.app:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2",
+    "pytest-cov",
+    "ruff>=0.17",
+    "mypy>=2.4",
+]
+
+[build-system]
+requires = ["hatchling>=1.33"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+path = "src/stopline/version.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/stopline"]
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "S", "PTH", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101"]
+
+[tool.mypy]
+strict = true
+files = ["src", "tests"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
