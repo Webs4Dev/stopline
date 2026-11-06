@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 import msgspec
 import pytest
 
-from stopline.core.models import Contract, DoneWhenCommand, Item, Status
+from stopline.core.models import Contract, DoneWhenCommand, FeatureKey, Item, PartId, Status
 
 # The example contract from spec section 9.1, with a full-length approval hash.
 SPEC_EXAMPLE = """
@@ -246,3 +246,16 @@ def test_contract_can_generate_a_json_schema() -> None:
     schema = msgspec.json.schema(Contract)
 
     assert schema["$ref"] == "#/$defs/Contract"
+
+
+@pytest.mark.parametrize(
+    ("value", "kind"),
+    [
+        pytest.param("auth\n", PartId, id="part id"),
+        pytest.param("function:x\n", FeatureKey, id="feature key"),
+    ],
+)
+def test_trailing_line_break_is_rejected(value: str, kind: object) -> None:
+    """Spec section 9.2: Python's $ accepts a final line break, which these patterns must not."""
+    with pytest.raises(msgspec.ValidationError):
+        msgspec.convert(value, kind)

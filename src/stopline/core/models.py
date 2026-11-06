@@ -9,10 +9,16 @@ from msgspec import Meta
 
 # Feature kinds from spec section 10.2. Listing them means a wildcard or a typo in the
 # kind portion of an anchor is rejected, while the name portion may use * and ?.
-_FEATURE_KEY = r"^(route|page|function|method|class|component|cli|config|dependency|table):.+$"
+#
+# Every pattern ends in (?!\n)$ because in Python a bare $ also accepts one trailing line break.
+# \Z would be simpler, but these patterns are published in the JSON Schema, which cannot use it.
+_FEATURE_KEY = (
+    r"^(route|page|function|method|class|component|cli|config|dependency|table):.+(?!\n)$"
+)
 
 NonEmptyStr = Annotated[str, Meta(min_length=1)]
 FeatureKey = Annotated[str, Meta(pattern=_FEATURE_KEY)]
+PartId = Annotated[str, Meta(pattern=r"^[a-z0-9][a-z0-9-]{0,47}(?!\n)$")]
 Timestamp = Annotated[datetime, Meta(tz=True)]
 
 
@@ -59,7 +65,7 @@ class ApprovedExtra(_Model, frozen=True):
 class Approval(_Model, frozen=True):
     """Written by `part approve`, never by hand."""
 
-    hash: Annotated[str, Meta(pattern=r"^sha256:[0-9a-f]{64}$")]
+    hash: Annotated[str, Meta(pattern=r"^sha256:[0-9a-f]{64}(?!\n)$")]
     approved_by: NonEmptyStr
     approved_at: Timestamp
 
@@ -67,7 +73,7 @@ class Approval(_Model, frozen=True):
 class Baseline(_Model, frozen=True):
     """Written by `part start`, never by hand."""
 
-    commit: Annotated[str, Meta(pattern=r"^[0-9a-f]{7,64}$")]
+    commit: Annotated[str, Meta(pattern=r"^[0-9a-f]{7,64}(?!\n)$")]
     started_at: Timestamp
 
 
@@ -75,7 +81,7 @@ class Contract(_Model, frozen=True):
     """A part contract, as stored in `.stopline/parts/<id>.toml`."""
 
     schema: Literal[1]
-    id: Annotated[str, Meta(pattern=r"^[a-z0-9][a-z0-9-]{0,47}$")]
+    id: PartId
     title: NonEmptyStr
     summary: Annotated[str, Meta(min_length=1, max_length=300)]
     paths: Annotated[list[NonEmptyStr], Meta(min_length=1, max_length=20)]

@@ -13,7 +13,7 @@
           "type": "string"
         },
         "hash": {
-          "pattern": "^sha256:[0-9a-f]{64}$",
+          "pattern": "^sha256:[0-9a-f]{64}(?!\\n)$",
           "type": "string"
         }
       },
@@ -34,7 +34,7 @@
           "type": "string"
         },
         "feature": {
-          "pattern": "^(route|page|function|method|class|component|cli|config|dependency|table):.+$",
+          "pattern": "^(route|page|function|method|class|component|cli|config|dependency|table):.+(?!\\n)$",
           "type": "string"
         },
         "reason": {
@@ -55,7 +55,7 @@
       "description": "Written by `part start`, never by hand.",
       "properties": {
         "commit": {
-          "pattern": "^[0-9a-f]{7,64}$",
+          "pattern": "^[0-9a-f]{7,64}(?!\\n)$",
           "type": "string"
         },
         "started_at": {
@@ -108,7 +108,7 @@
           "default": null
         },
         "id": {
-          "pattern": "^[a-z0-9][a-z0-9-]{0,47}$",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,47}(?!\\n)$",
           "type": "string"
         },
         "items": {
@@ -202,7 +202,7 @@
         "anchors": {
           "default": [],
           "items": {
-            "pattern": "^(route|page|function|method|class|component|cli|config|dependency|table):.+$",
+            "pattern": "^(route|page|function|method|class|component|cli|config|dependency|table):.+(?!\\n)$",
             "type": "string"
           },
           "maxItems": 10,

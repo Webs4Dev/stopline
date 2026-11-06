@@ -241,7 +241,7 @@ def test_missing_file(tmp_path: Path) -> None:
     assert "does not exist" in caught.value.problem
     assert "stopline part new auth" in caught.value.fix
     assert caught.value.line is None
-    assert str(caught.value).startswith(str(tmp_path / "auth.toml") + ": The contract")
+    assert str(caught.value).startswith(str(tmp_path / "auth.toml") + ": The file")
 
 
 def test_unreadable_path(tmp_path: Path) -> None:
