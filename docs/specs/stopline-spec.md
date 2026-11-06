@@ -412,7 +412,7 @@ approved_at = 2026-11-10T11:40:00Z
 | FR-CON-01 | Contracts shall be validated against the schema on load; errors shall name the file, line and field and suggest a fix. | Must |
 | FR-CON-02 | The approval hash shall be SHA-256 over a canonical JSON serialisation (sorted keys, no whitespace between JSON elements) of summary, paths, items, approved_extras and allow_overlap. Text inside values is hashed exactly as written and is never normalised. | Must |
 | FR-CON-03 | If the current content hash differs from the approval hash, the contract is treated as unapproved: finding SL004 (blocking in enforce mode) and no completion. | Must |
-| FR-CON-04 | `part keep FEATURE` (owner, TTY) shall append an approved extra and re-sign the approval hash in one step. | Must |
+| FR-CON-04 | `part keep FEATURE` shall append an approved extra and re-sign the approval hash in one step. It needs no terminal, so an agent can run it, but the owner must allow each run in the agent's own permission prompt (12.1, 17.3). | Must |
 | FR-CON-05 | `part new --from FILE` shall accept an agent-drafted contract (TOML or JSON) and save it as draft without approving it. | Must |
 | FR-CON-06 | A warning shall be emitted when an item has neither anchors nor done_when (it can never be verified). Such an item is never satisfied, so the part cannot complete until the owner adds an anchor or a done_when. | Must |
 | FR-CON-07 | Writes shall be atomic (temp file + rename) and preserve comments outside Stopline-managed tables. | Should |
@@ -542,7 +542,7 @@ flowchart TD
 |---|---|---|---|
 | SessionStart (startup, resume, compact, clear) | If a part is active, print the part card: id, summary, items with status, unplanned count, and the rule "build only these items; when all are done, stop and ask". On `compact` this restores the plan after compaction. | `hookSpecificOutput.additionalContext` (max 1,500 chars) | p95 300 ms |
 | UserPromptSubmit | One line: active part and remaining items. Silent when no part is active. | `additionalContext` | p95 150 ms |
-| PreToolUse (Edit\|Write\|MultiEdit, Bash) | Deny edits to `.stopline/**` and Bash commands invoking owner-only subcommands (`part approve\|keep\|pause\|reopen\|abandon`, `trust`, `hooks uninstall`). | permission decision deny + reason | p95 100 ms |
+| PreToolUse (Edit\|Write\|MultiEdit, Bash) | Deny edits to `.stopline/**` and Bash commands invoking owner-only subcommands (`part approve\|pause\|reopen\|abandon`, `trust`, `review`, `hooks uninstall`). Bash commands invoking `part keep` get `ask`, so Claude Code shows the owner its own permission prompt. | permission decision deny or ask + reason | p95 100 ms |
 | PostToolUse (Edit\|Write\|MultiEdit) | Incremental check of the edited file only. On a new unplanned feature, return feedback; never block. | `additionalContext` | p95 300 ms |
 | Stop | Full check (section 7.2). Block only on blocking findings with loop protection. | `decision: block` + reason, or exit 0 + `systemMessage` | p95 1.5 s + done_when |
 
@@ -559,7 +559,7 @@ and ask whether to keep or revert them. Then stop and ask which part is next.
 
 #### Packaging for Claude Code
 
-- **Plugin** (recommended): the repository is also a Claude Code plugin marketplace (`.claude-plugin/marketplace.json`). The plugin ships `hooks/hooks.json` calling `stopline-hook`, and a skill `skills/stopline/SKILL.md` that teaches the agent the workflow: draft a contract with `part new --from`, ask the owner to approve, build only contract items, disclose unplanned features. If the `stopline-hook` binary is missing, the SessionStart hook prints install instructions and every other hook exits 0.
+- **Plugin** (recommended): the repository is also a Claude Code plugin marketplace (`.claude-plugin/marketplace.json`). The plugin ships `hooks/hooks.json` calling `stopline-hook`, and a skill `skills/stopline/SKILL.md` that teaches the agent the workflow: draft a contract with `part new --from`, ask the owner to approve, build only contract items, disclose unplanned features, and run `part keep` when the owner says to keep one. If the `stopline-hook` binary is missing, the SessionStart hook prints install instructions and every other hook exits 0.
 - **Direct**: `stopline hooks install --agent claude --scope project|local|user` merges entries into the matching settings file, marks them with a `stopline` identifier, backs up the original, writes atomically, and is idempotent. `hooks uninstall` removes only its own entries.
 - Hook commands use exec form (`command` + `args`) so paths with spaces work on all platforms.
 
@@ -584,6 +584,11 @@ sequenceDiagram
   A->>O: lists unplanned features, asks keep or revert
   A->>H: Stop (stop_hook_active=true)
   H-->>A: exit 0 + systemMessage
+  O->>A: keep this feature
+  A->>H: PreToolUse (part keep)
+  H-->>A: permission decision ask
+  A->>O: permission prompt
+  O->>A: allow
   O->>A: stopline review / next part
 ```
 
@@ -593,7 +598,7 @@ sequenceDiagram
 |---|---|
 | SessionStart | Same part card as Claude Code. |
 | UserPromptSubmit | Same one-line reminder. |
-| PreToolUse (Bash) | Deny owner-only Stopline subcommands. |
+| PreToolUse (Bash) | Deny owner-only Stopline subcommands, and also `part keep`: no way to show a permission prompt from a Codex hook has been verified, so the owner runs it. Verify before M6. |
 | Stop | Full check; `{"decision":"block","reason":...}`; honours `stop_hook_active` and reads `last_assistant_message`. |
 
 Codex hooks are configured in `~/.codex/hooks.json` or `.codex/hooks.json`. At the time of writing, Codex reports tool hooks for shell commands, so file edits may not trigger PostToolUse; Stopline therefore relies on the Stop check for Codex, which diffs the working tree directly and does not depend on edit events [11]. Verify current behaviour before M6.
@@ -616,7 +621,7 @@ Codex hooks are configured in `~/.codex/hooks.json` or `.codex/hooks.json`. At t
 | `stopline part approve ID` | Validate and sign a draft or edited contract. | yes |
 | `stopline part start ID` | Make a part active and record the baseline. | no |
 | `stopline part pause \| reopen ID \| abandon ID` | Lifecycle transitions. | pause, reopen, abandon |
-| `stopline part keep FEATURE [--reason TEXT]` | Add an approved extra and re-sign. | yes |
+| `stopline part keep FEATURE [--reason TEXT]` | Add an approved extra and re-sign. Without `--reason`, a terminal prompts for one and anything else is an error. | no terminal needed, but agents go through the permission prompt (12.1) |
 | `stopline part list` | All parts with status and counts. | no |
 | `stopline trust [ID...] [--base REF]` | Accept committed contracts as trusted in this clone (fresh clone, rebuilt database, merged branch); shows the done_when commands first. With `--base REF`, trust only contracts unchanged from REF (used by CI). | yes |
 | `stopline status` | Active part, items, unplanned features, last check. | no |
@@ -788,6 +793,7 @@ trust(part_id TEXT PRIMARY KEY, approval_hash TEXT, status TEXT, baseline TEXT,
 |---|---|
 | Agent edits a contract to legitimise its additions | Approval hash (FR-CON-03); PreToolUse denies edits to .stopline/**; Bash edits are still caught by the hash check, and status and baseline are checked against the local trust record (FR-CON-08). |
 | Agent runs `stopline part approve` itself | Owner-only commands require a TTY (agent shells have none); PreToolUse denies those commands; ledger records approver. |
+| Agent keeps its own unplanned feature with `part keep` | PreToolUse returns `ask`, so the owner must allow the run in the agent's own permission prompt; `part keep` refuses a contract edited since approval, so it cannot sign other changes; the change is visible in git. |
 | Agent renames features to match anchors | Anchors are owner-approved; done_when runs real tests; SL009 flags remove-and-re-add patterns. |
 | Malicious repository contract runs commands on clone | done_when runs only after local approval in the current clone: the contract must match a local trust record in state.db (not in git; FR-CON-08). Fresh clones, rebuilt databases and branches merged from elsewhere require `part approve` or `stopline trust` (owner, TTY) before any command runs; CI trusts only contracts unchanged from the PR base. |
 | Secrets leak into logs or reports | Secret deny-list never read; done_when output redacted (tokens, keys, JWTs, connection strings, emails) and truncated; debug logs off by default. |
@@ -797,6 +803,8 @@ trust(part_id TEXT PRIMARY KEY, approval_hash TEXT, status TEXT, baseline TEXT,
 ### 17.3 Owner-only operations
 
 Stopline is a guard against accidental overbuilding, not a sandbox. An agent with unrestricted shell access could in principle defeat any local tool (for example by allocating a pseudo-terminal). The layered defences above make bypassing deliberate and visible in the ledger; documentation must state this limitation plainly.
+
+`part keep` is the one owner decision an agent may carry out, because the owner's permission prompt confirms it. That protection depends on the PreToolUse hook and the agent's permission system, so documentation must also state that nothing stops an agent running `part keep` when the hooks are not installed or have failed open, or when the agent runs in a mode that skips permission prompts, such as Claude Code's `bypassPermissions`. `part approve` stays terminal-only because it also allows the contract's done_when commands to run.
 
 ### 17.4 Redaction
 
@@ -1174,5 +1182,6 @@ Agent:  builds; Stopline checks every turn; part completes; agent asks what is n
 | 2026-11-04 | 2.1 | 12.3, 26 (Q1): the GitHub Action and the project now live under Webs4Dev; the plan for a separate GitHub organisation is removed. | Owner decision: keep everything under Webs4Dev. |
 | 2026-11-06 | 2.1 | FR-CON-02: "normalised whitespace" now means no whitespace between JSON elements; text inside values is hashed exactly as written. | The old wording was ambiguous, and collapsing spaces inside a done_when command could change what it does without breaking the approval. |
 | 2026-11-06 | 2.1 | 9.1, FR-CON-02, FR-CON-08: the approval hash now also covers `allow_overlap`. | It decides whether two parts may share paths, and nothing detected a hand edit to it (open question 2). |
+| 2026-11-06 | 2.1 | FR-CON-04, 12.1, Figure 5, 12.2, 13.1, 17.2, 17.3: an agent may run `part keep` once the owner allows it in the agent's permission prompt; the PreToolUse hook returns `ask` for it instead of `deny`. Codex still denies it. `review` added to the PreToolUse deny list, matching 13.1. | Owner decision: approving a feature in the agent session should not mean switching to a terminal. The prompt keeps the decision with the owner, whom a chat message alone cannot prove. |
 
 Note: `stopline-diagrams.pdf` was not regenerated and still shows spec v2.0. The Mermaid source in this file is current, and where they differ this file wins.
