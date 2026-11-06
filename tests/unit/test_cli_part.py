@@ -61,7 +61,7 @@ def _run(*arguments: str, stdin: str | None = None) -> Result:
 
 def _draft(root: Path, part_id: str = "billing", text: str = DRAFT) -> Path:
     source = root / f"{part_id}.draft.toml"
-    source.write_text(text, encoding="utf-8")
+    source.write_text(text.replace("src/billing/", f"src/{part_id}/"), encoding="utf-8")
     assert _run("new", part_id, "--from", str(source)).exit_code == 0
     return root / ".stopline" / "parts" / f"{part_id}.toml"
 
@@ -190,6 +190,41 @@ def test_keep_with_nothing_active(repo: Path, owner: None) -> None:
 
     assert result.exit_code == 3
     assert "No part is active" in result.output
+    assert "--part ID" in result.output
+
+
+def test_keep_in_a_completed_part_needs_no_reopen(repo: Path, owner: None) -> None:
+    """Spec section 13.1: a feature is often kept just after its part completes (12.1)."""
+    path = _active(repo)
+    complete_part(path)
+
+    result = _run("keep", "function:a.b", "--part", "billing", "--reason", "Helper")
+
+    assert result.exit_code == 0
+    contract = load_contract(path)
+    assert contract.status is Status.COMPLETE
+    assert contract.approved_extras[0].feature == "function:a.b"
+    assert approval_matches(contract)
+
+
+def test_keep_can_name_a_part_that_is_not_the_active_one(repo: Path, owner: None) -> None:
+    """Spec section 13.1: --part wins over the active part."""
+    first = _active(repo, "first")
+    complete_part(first)
+    second = _active(repo, "second")
+
+    assert _run("keep", "function:a.b", "--part", "first", "--reason", "Helper").exit_code == 0
+
+    assert load_contract(first).approved_extras[0].feature == "function:a.b"
+    assert load_contract(second).approved_extras == []
+
+
+@pytest.mark.parametrize("part", ["nope", "../evil"])
+def test_keep_with_a_bad_part_name(repo: Path, part: str) -> None:
+    """Spec section 13.3: a part that does not exist, or cannot exist, exits 3."""
+    result = _run("keep", "function:a.b", "--part", part, "--reason", "Helper")
+
+    assert result.exit_code == 3
 
 
 def test_keep_refuses_a_contract_edited_since_approval(repo: Path, owner: None) -> None:
@@ -257,7 +292,7 @@ def test_hidden_characters_are_shown_as_codes(repo: Path, owner: None) -> None:
 
     assert result.exit_code == 0
     assert "\x1b" not in result.output
-    assert "​" not in result.output
+    assert chr(0x200B) not in result.output
     assert "\\x1b[2K" in result.output
     assert "\\u200b" in result.output
 

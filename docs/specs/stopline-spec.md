@@ -621,7 +621,7 @@ Codex hooks are configured in `~/.codex/hooks.json` or `.codex/hooks.json`. At t
 | `stopline part approve ID` | Validate and sign a draft or edited contract. | yes |
 | `stopline part start ID` | Make a part active and record the baseline. | no |
 | `stopline part pause \| reopen ID \| abandon ID` | Lifecycle transitions. | pause, reopen, abandon |
-| `stopline part keep FEATURE [--reason TEXT]` | Add an approved extra and re-sign. Without `--reason`, a terminal prompts for one and anything else is an error. | no terminal needed, but agents go through the permission prompt (12.1) |
+| `stopline part keep FEATURE [--part ID] [--reason TEXT]` | Add an approved extra and re-sign. Without `--part` it applies to the active part. Without `--reason`, a terminal prompts for one and anything else is an error. | no terminal needed, but agents go through the permission prompt (12.1) |
 | `stopline part list` | All parts with status and counts. | no |
 | `stopline trust [ID...] [--base REF]` | Accept committed contracts as trusted in this clone (fresh clone, rebuilt database, merged branch); shows the done_when commands first. With `--base REF`, trust only contracts unchanged from REF (used by CI). | yes |
 | `stopline status` | Active part, items, unplanned features, last check. | no |
@@ -1183,5 +1183,6 @@ Agent:  builds; Stopline checks every turn; part completes; agent asks what is n
 | 2026-11-06 | 2.1 | FR-CON-02: "normalised whitespace" now means no whitespace between JSON elements; text inside values is hashed exactly as written. | The old wording was ambiguous, and collapsing spaces inside a done_when command could change what it does without breaking the approval. |
 | 2026-11-06 | 2.1 | 9.1, FR-CON-02, FR-CON-08: the approval hash now also covers `allow_overlap`. | It decides whether two parts may share paths, and nothing detected a hand edit to it (open question 2). |
 | 2026-11-06 | 2.1 | FR-CON-04, 12.1, Figure 5, 12.2, 13.1, 17.2, 17.3: an agent may run `part keep` once the owner allows it in the agent's permission prompt; the PreToolUse hook returns `ask` for it instead of `deny`. Codex still denies it. `review` added to the PreToolUse deny list, matching 13.1. | Owner decision: approving a feature in the agent session should not mean switching to a terminal. The prompt keeps the decision with the owner, whom a chat message alone cannot prove. |
+| 2026-11-06 | 2.1 | 13.1: `part keep` gains `--part ID`. | After a part completes nothing is active, yet that is when the owner is asked to keep or revert (12.1, Appendix A). Reopening the part just to keep a feature would be wrong. |
 
 Note: `stopline-diagrams.pdf` was not regenerated and still shows spec v2.0. The Mermaid source in this file is current, and where they differ this file wins.

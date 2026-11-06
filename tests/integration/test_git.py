@@ -70,7 +70,7 @@ def test_renamed_file_is_listed_once_under_its_new_name(repo: Path) -> None:
 
 def test_names_with_spaces_and_accents_are_not_mangled(repo: Path) -> None:
     """Spec section 8: file names come back exactly as they are on disk."""
-    name = "src/auth/a file é.py"
+    name = f"src/auth/a file {chr(0xE9)}.py"
     (repo / name).write_text("x = 1\n", encoding="utf-8")
 
     assert Git(repo).dirty_paths(["src/auth/**"]) == [name]

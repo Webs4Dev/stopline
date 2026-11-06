@@ -31,7 +31,7 @@ from stopline.core.lifecycle import (
     require_owner,
     start_part,
 )
-from stopline.core.models import Contract, DoneWhenCommand, Status
+from stopline.core.models import Contract, DoneWhenCommand
 from stopline.vcs.git import Git, GitError
 
 part_app = typer.Typer(help="Create parts and move them through their stages.")
@@ -223,9 +223,15 @@ def abandon(part_id: PartIdArgument) -> None:
 @part_app.command()
 def keep(
     feature: Annotated[str, typer.Argument(help='The feature, such as "route:POST /login".')],
+    part_id: Annotated[
+        str | None,
+        typer.Option(
+            "--part", metavar="ID", help="The part to keep it in. Default: the active one."
+        ),
+    ] = None,
     reason: Annotated[str | None, typer.Option("--reason", help="Why it is being kept.")] = None,
 ) -> None:
-    """Keep an unplanned feature in the active part, and re-sign the contract.
+    """Keep an unplanned feature in a part, and re-sign the contract.
 
     This needs no terminal, so an agent can run it. From milestone M6 Stopline's hook makes the
     agent ask the owner's permission first (spec section 12.1).
@@ -236,10 +242,12 @@ def keep(
         reason = typer.prompt("Why is it being kept?")
     with _friendly_errors():
         parts_dir = _parts_dir()
-        active = checked_part(parts_dir, last_completed=None)
-        if active is None or active.status is not Status.ACTIVE:
-            fix = "Run `stopline part start ID` or `stopline part reopen ID`, then try again."
-            raise ContractError(parts_dir, "No part is active to keep this in.", fix)
-        path = part_path(parts_dir, active.id)
+        if part_id is None:
+            active = checked_part(parts_dir, last_completed=None)
+            if active is None:
+                fix = "Name the part with `--part ID`."
+                raise ContractError(parts_dir, "No part is active to keep this in.", fix)
+            part_id = active.id
+        path = part_path(parts_dir, part_id)
         keep_feature(path, feature, reason, _git().user_name(), _now())
-        typer.echo(f"Kept in {active.id}: {_printable(feature)}")
+        typer.echo(f"Kept in {part_id}: {_printable(feature)}")
