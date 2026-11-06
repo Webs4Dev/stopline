@@ -1,10 +1,12 @@
-# Root of the `stopline` command-line interface: --version and `schema`.
+# Root of the `stopline` command-line interface: --version, `schema` and the `part` commands.
+import sys
 from enum import StrEnum
 from typing import Annotated
 
 import typer
 from typer._click.exceptions import UsageError
 
+from stopline.cli.part import part_app
 from stopline.core.contract import contract_json_schema_text
 from stopline.version import __version__
 
@@ -17,6 +19,9 @@ app = typer.Typer(
     help="Tells AI coding agents when a part is finished and flags unplanned features.",
     add_completion=False,
 )
+app.add_typer(part_app, name="part")
+
+_REPORT_URL = "https://github.com/Webs4Dev/stopline/issues"
 
 
 class SchemaName(StrEnum):
@@ -54,5 +59,10 @@ def schema(name: Annotated[SchemaName, typer.Argument(help="Which schema to prin
 
 
 def main() -> None:
-    """Console-script entry point."""
-    app()
+    """Console-script entry point. Anything unexpected is a bug: exit 70 (spec section 13.3)."""
+    try:
+        app()
+    except Exception as err:
+        typer.echo(f"Internal error, which is a bug in Stopline: {err!r}", err=True)
+        typer.echo(f"  Fix: Please report it at {_REPORT_URL}", err=True)
+        sys.exit(70)

@@ -94,5 +94,5 @@ def test_missing_git_is_a_git_error(repo: Path, monkeypatch: pytest.MonkeyPatch)
     """Spec section 13.3: git missing is an environment error."""
     monkeypatch.setenv("PATH", "")
 
-    with pytest.raises(GitError, match="not installed"):
+    with pytest.raises(GitError, match="cannot be found"):
         Git(repo).head()

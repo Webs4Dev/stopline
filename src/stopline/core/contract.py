@@ -140,6 +140,17 @@ def load_with_text(path: Path) -> tuple[Contract, str]:
     return contract, text
 
 
+def part_path(parts_dir: Path, part_id: str) -> Path:
+    """Return where a part's contract lives, refusing an id that could point anywhere else."""
+    path = parts_dir / f"{part_id}.toml"
+    try:
+        msgspec.convert(part_id, PartId)
+    except msgspec.ValidationError:
+        fix = "Use 1-48 lower-case letters, digits or dashes, starting with a letter or digit."
+        raise ContractError(path, f"{part_id!r} is not a valid part id.", fix) from None
+    return path
+
+
 def new_part(part_id: str, parts_dir: Path, source: Path | None = None) -> Path:
     """Create a draft contract and return its path (spec section 8, FR-CON-05).
 
@@ -147,12 +158,7 @@ def new_part(part_id: str, parts_dir: Path, source: Path | None = None) -> Path:
     saved as a draft: a missing id or status is filled in, and a draft that claims to be approved
     or started is refused, so only the owner's `part approve` can ever make it approved.
     """
-    path = parts_dir / f"{part_id}.toml"
-    try:
-        msgspec.convert(part_id, PartId)
-    except msgspec.ValidationError:
-        fix = "Use 1-48 lower-case letters, digits or dashes, starting with a letter or digit."
-        raise ContractError(path, f"{part_id!r} is not a valid part id.", fix) from None
+    path = part_path(parts_dir, part_id)
     if path.exists():
         fix = "Choose another id, or edit the existing contract."
         raise ContractError(path, f"Part `{part_id}` already exists.", fix)
