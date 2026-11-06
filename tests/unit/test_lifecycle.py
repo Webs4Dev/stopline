@@ -1,5 +1,6 @@
 # Tests for moving parts between states and the rules for each move (spec section 8).
 import io
+import tomllib
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
@@ -105,6 +106,31 @@ def test_approve_signs_a_draft(tmp_path: Path) -> None:
     assert contract.approval is not None
     assert contract.approval.approved_by == "Owner"
     assert contract.approval.approved_at == APPROVED_AT
+
+
+def test_each_stage_is_stored_in_the_contract_file(tmp_path: Path) -> None:
+    """FR-LC-01 (contract-file half): state lives in `status`, in the file that git commits."""
+    path = _draft(tmp_path)
+
+    def stored_status() -> str:
+        status = tomllib.loads(path.read_text(encoding="utf-8"))["status"]
+        assert isinstance(status, str)
+        return status
+
+    assert stored_status() == "draft"
+    approve_part(path, "Owner", APPROVED_AT)
+    assert stored_status() == "approved"
+    start_part(path, FakeGit(), STARTED_AT)
+    assert stored_status() == "active"
+    assert pause_part(tmp_path) == "auth"
+    assert stored_status() == "approved"
+    start_part(path, FakeGit(), LATER)
+    complete_part(path)
+    assert stored_status() == "complete"
+    reopen_part(path)
+    assert stored_status() == "active"
+    abandon_part(path)
+    assert stored_status() == "abandoned"
 
 
 def test_writes_keep_comments(tmp_path: Path) -> None:
