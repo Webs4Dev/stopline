@@ -56,7 +56,8 @@ def _minimal_contract() -> Contract:
 def test_hash_of_a_known_contract_never_changes() -> None:
     """FR-CON-02: the exact bytes are pinned, so a change here would break every approval."""
     canonical = (
-        '{"approved_extras":[],'
+        '{"allow_overlap":false,'
+        '"approved_extras":[],'
         '"items":[{"anchors":[],"desc":"Log in","done_when":null,"id":"login"}],'
         '"paths":["src/**"],'
         '"summary":"Log  in"}'
@@ -92,7 +93,7 @@ def test_hash_fits_the_approval_field() -> None:
     ],
 )
 def test_changes_that_keep_the_hash(tmp_path: Path, old: str, new: str) -> None:
-    """FR-CON-02: layout and fields outside summary, paths, items and extras do not count."""
+    """FR-CON-02: layout and fields the hash does not cover do not count."""
     assert old in BASE
 
     assert approval_hash(_load(tmp_path, BASE.replace(old, new))) == approval_hash(
@@ -103,6 +104,7 @@ def test_changes_that_keep_the_hash(tmp_path: Path, old: str, new: str) -> None:
 @pytest.mark.parametrize(
     ("old", "new"),
     [
+        pytest.param('status  = "draft"', 'status = "draft"\nallow_overlap = true', id="overlap"),
         pytest.param('"Login  and logout"', '"Login and logout"', id="summary double space"),
         pytest.param('"Login  and logout"', '"Login  and logout "', id="summary trailing space"),
         pytest.param('"a  b"', '"a b"', id="double space inside a command"),

@@ -136,6 +136,7 @@ def approval_hash(contract: Contract) -> str:
     """
     canonical = msgspec.json.encode(
         {
+            "allow_overlap": contract.allow_overlap,
             "approved_extras": contract.approved_extras,
             "items": contract.items,
             "paths": contract.paths,

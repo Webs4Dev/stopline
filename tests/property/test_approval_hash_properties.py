@@ -79,10 +79,10 @@ def test_key_order_never_changes_the_hash(contract: Contract) -> None:
 _UNCOVERED_EDITS: dict[str, Edit] = {
     "title": lambda c: _replace(c, title=c.title + "!"),
     "status": lambda c: _replace(c, status=Status.ABANDONED),
-    "allow_overlap": lambda c: _replace(c, allow_overlap=not c.allow_overlap),
 }
 
 _COVERED_EDITS: dict[str, Edit] = {
+    "allow_overlap": lambda c: _replace(c, allow_overlap=not c.allow_overlap),
     "summary space": lambda c: _replace(c, summary=c.summary + " "),
     "extra path": lambda c: _replace(c, paths=[*c.paths, "x"]),
     "path space": lambda c: _replace(c, paths=[c.paths[0] + " ", *c.paths[1:]]),
@@ -107,7 +107,7 @@ _COVERED_EDITS: dict[str, Edit] = {
 @pytest.mark.parametrize("edit", _UNCOVERED_EDITS.values(), ids=_UNCOVERED_EDITS.keys())
 @given(contract=_contracts)
 def test_fields_outside_the_hash_do_not_change_it(contract: Contract, edit: Edit) -> None:
-    """FR-CON-02: only summary, paths, items and approved_extras are covered."""
+    """FR-CON-02: only summary, paths, items, approved_extras and allow_overlap are covered."""
     assert approval_hash(edit(contract)) == approval_hash(contract)
 
 

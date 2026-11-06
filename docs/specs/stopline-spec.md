@@ -358,7 +358,7 @@ paths   = ["src/auth/**", "tests/auth/**"]
 status  = "approved"                   # draft|approved|active|complete|abandoned
 
 [approval]                             # written by `part approve`, never by hand
-hash        = "sha256:9f2c...e41a"     # canonical hash of summary+paths+items+extras
+hash        = "sha256:9f2c...e41a"     # canonical hash of summary+paths+items+extras+allow_overlap
 approved_by = "Devansh Shah"
 approved_at = 2026-11-10T09:12:00Z
 
@@ -410,13 +410,13 @@ approved_at = 2026-11-10T11:40:00Z
 | ID | Requirement | Pri. |
 |---|---|---|
 | FR-CON-01 | Contracts shall be validated against the schema on load; errors shall name the file, line and field and suggest a fix. | Must |
-| FR-CON-02 | The approval hash shall be SHA-256 over a canonical JSON serialisation (sorted keys, no whitespace between JSON elements) of summary, paths, items and approved_extras. Text inside values is hashed exactly as written and is never normalised. | Must |
+| FR-CON-02 | The approval hash shall be SHA-256 over a canonical JSON serialisation (sorted keys, no whitespace between JSON elements) of summary, paths, items, approved_extras and allow_overlap. Text inside values is hashed exactly as written and is never normalised. | Must |
 | FR-CON-03 | If the current content hash differs from the approval hash, the contract is treated as unapproved: finding SL004 (blocking in enforce mode) and no completion. | Must |
 | FR-CON-04 | `part keep FEATURE` (owner, TTY) shall append an approved extra and re-sign the approval hash in one step. | Must |
 | FR-CON-05 | `part new --from FILE` shall accept an agent-drafted contract (TOML or JSON) and save it as draft without approving it. | Must |
 | FR-CON-06 | A warning shall be emitted when an item has neither anchors nor done_when (it can never be verified). Such an item is never satisfied, so the part cannot complete until the owner adds an anchor or a done_when. | Must |
 | FR-CON-07 | Writes shall be atomic (temp file + rename) and preserve comments outside Stopline-managed tables. | Should |
-| FR-CON-08 | Stopline shall keep a local trust record per part in state.db: approval hash, status, baseline commit, who and when. If the contract file's approval hash, status or baseline differs from the record and no Stopline command wrote the change, or no record exists (fresh clone, rebuilt database, branch merged from elsewhere), the part is untrusted: finding SL004, done_when is not run, and the part cannot complete. The approval hash covers only summary, paths, items and approved_extras (FR-CON-02), so status and baseline are protected by this record instead. | Must |
+| FR-CON-08 | Stopline shall keep a local trust record per part in state.db: approval hash, status, baseline commit, who and when. If the contract file's approval hash, status or baseline differs from the record and no Stopline command wrote the change, or no record exists (fresh clone, rebuilt database, branch merged from elsewhere), the part is untrusted: finding SL004, done_when is not run, and the part cannot complete. The approval hash covers only summary, paths, items, approved_extras and allow_overlap (FR-CON-02), so status and baseline are protected by this record instead. | Must |
 | FR-CON-09 | `stopline trust [ID...]` (owner, TTY) shall show every done_when command the contract would be allowed to run, then accept the current committed contract (hash, status, baseline) as the local record. Other Stopline commands (`part approve`, `start`, `keep`, ...) update the record themselves. | Must |
 
 ## 10. Feature model and extraction
@@ -1173,5 +1173,6 @@ Agent:  builds; Stopline checks every turn; part completes; agent asks what is n
 | 2026-11-04 | 2.1 | 9.1: schema path and `#:schema` URL corrected to `src/stopline/schemas/` under `Webs4Dev/stopline`. | The old URL matched neither the section 19 layout nor the real repository, so it would never resolve. |
 | 2026-11-04 | 2.1 | 12.3, 26 (Q1): the GitHub Action and the project now live under Webs4Dev; the plan for a separate GitHub organisation is removed. | Owner decision: keep everything under Webs4Dev. |
 | 2026-11-06 | 2.1 | FR-CON-02: "normalised whitespace" now means no whitespace between JSON elements; text inside values is hashed exactly as written. | The old wording was ambiguous, and collapsing spaces inside a done_when command could change what it does without breaking the approval. |
+| 2026-11-06 | 2.1 | 9.1, FR-CON-02, FR-CON-08: the approval hash now also covers `allow_overlap`. | It decides whether two parts may share paths, and nothing detected a hand edit to it (open question 2). |
 
 Note: `stopline-diagrams.pdf` was not regenerated and still shows spec v2.0. The Mermaid source in this file is current, and where they differ this file wins.
