@@ -8,10 +8,10 @@ import re
 import stat
 import tempfile
 import tomllib
-from collections.abc import MutableMapping
+from collections.abc import Mapping, MutableMapping
 from datetime import datetime
 from pathlib import Path
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 import msgspec
 
@@ -25,6 +25,9 @@ from stopline.core.models import (
     PartId,
     Status,
 )
+
+if TYPE_CHECKING:
+    from tomlkit import TOMLDocument
 
 SCHEMA_URL = (
     "https://raw.githubusercontent.com/Webs4Dev/stopline/main/"
@@ -119,10 +122,10 @@ class ContractError(Exception):
 
 def load_contract(path: Path) -> Contract:
     """Read and validate a contract file, raising ContractError if anything is wrong."""
-    return _load(path)[0]
+    return load_with_text(path)[0]
 
 
-def _load(path: Path) -> tuple[Contract, str]:
+def load_with_text(path: Path) -> tuple[Contract, str]:
     """Return a validated contract together with the exact text it was read from."""
     text = _read_text(path, missing_fix=f"Create it with `stopline part new {path.stem}`.")
     contract = _parse(text, path)
@@ -174,7 +177,7 @@ def keep_feature(path: Path, feature: str, reason: str, approved_by: str, now: d
 
     # The signature is checked on the same text that gets edited, so a change made to the file
     # after the check can never be signed by accident.
-    contract, original = _load(path)
+    contract, original = load_with_text(path)
     if contract.status is Status.ABANDONED:
         fix = "Abandoned parts are kept for history. Add the feature to another part."
         raise ContractError(path, f"Part `{contract.id}` is abandoned.", fix, field="status")
@@ -209,10 +212,39 @@ def keep_feature(path: Path, feature: str, reason: str, approved_by: str, now: d
             entry.add(tomlkit.nl())  # a blank line before any table that follows
             extras.append(entry)
 
-    approval = cast("MutableMapping[str, object]", document["approval"])
-    approval["hash"] = approval_hash(_parse(tomlkit.dumps(document), path))
-    approval["approved_by"] = approved_by
-    approval["approved_at"] = now
+    sign_document(document, path, approved_by, now)
+    save_document(document, path)
+
+
+def add_table(document: "TOMLDocument", key: str, values: Mapping[str, object]) -> None:
+    """Add a table at the end of a contract, with a blank line before it."""
+    import tomlkit
+
+    table = tomlkit.table()
+    table.update(values)
+    document.add(tomlkit.nl())
+    document[key] = table
+
+
+def sign_document(document: "TOMLDocument", path: Path, approved_by: str, now: datetime) -> None:
+    """Record the fingerprint of the document as it stands, and who approved it and when."""
+    import tomlkit
+
+    values = {
+        "hash": approval_hash(_parse(tomlkit.dumps(document), path)),
+        "approved_by": approved_by,
+        "approved_at": now,
+    }
+    if "approval" in document:
+        cast("MutableMapping[str, object]", document["approval"]).update(values)
+    else:
+        add_table(document, "approval", values)
+
+
+def save_document(document: "TOMLDocument", path: Path) -> None:
+    """Validate a changed contract, then save it atomically."""
+    import tomlkit
+
     text = tomlkit.dumps(document)
     _parse(text, path)  # nothing unreadable is ever saved
     _write_atomic(path, text)
