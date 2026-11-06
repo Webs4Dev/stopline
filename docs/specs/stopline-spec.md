@@ -410,7 +410,7 @@ approved_at = 2026-11-10T11:40:00Z
 | ID | Requirement | Pri. |
 |---|---|---|
 | FR-CON-01 | Contracts shall be validated against the schema on load; errors shall name the file, line and field and suggest a fix. | Must |
-| FR-CON-02 | The approval hash shall be SHA-256 over a canonical JSON serialisation (sorted keys, normalised whitespace) of summary, paths, items and approved_extras. | Must |
+| FR-CON-02 | The approval hash shall be SHA-256 over a canonical JSON serialisation (sorted keys, no whitespace between JSON elements) of summary, paths, items and approved_extras. Text inside values is hashed exactly as written and is never normalised. | Must |
 | FR-CON-03 | If the current content hash differs from the approval hash, the contract is treated as unapproved: finding SL004 (blocking in enforce mode) and no completion. | Must |
 | FR-CON-04 | `part keep FEATURE` (owner, TTY) shall append an approved extra and re-sign the approval hash in one step. | Must |
 | FR-CON-05 | `part new --from FILE` shall accept an agent-drafted contract (TOML or JSON) and save it as draft without approving it. | Must |
@@ -1172,5 +1172,6 @@ Agent:  builds; Stopline checks every turn; part completes; agent asks what is n
 | 2026-11-04 | 2.1 | 23.1: FR-LC-01 split, contract-file half in M1 and trust-record half in M2. | The trust record needs state.db, which arrives in M2. |
 | 2026-11-04 | 2.1 | 9.1: schema path and `#:schema` URL corrected to `src/stopline/schemas/` under `Webs4Dev/stopline`. | The old URL matched neither the section 19 layout nor the real repository, so it would never resolve. |
 | 2026-11-04 | 2.1 | 12.3, 26 (Q1): the GitHub Action and the project now live under Webs4Dev; the plan for a separate GitHub organisation is removed. | Owner decision: keep everything under Webs4Dev. |
+| 2026-11-06 | 2.1 | FR-CON-02: "normalised whitespace" now means no whitespace between JSON elements; text inside values is hashed exactly as written. | The old wording was ambiguous, and collapsing spaces inside a done_when command could change what it does without breaking the approval. |
 
 Note: `stopline-diagrams.pdf` was not regenerated and still shows spec v2.0. The Mermaid source in this file is current, and where they differ this file wins.

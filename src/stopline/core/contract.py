@@ -1,5 +1,7 @@
-# Reads contract files, reports problems by file, line and field, and produces the JSON Schema.
+# Reads contract files, reports problems by file, line and field, produces the JSON Schema,
+# and calculates the approval hash.
 import difflib
+import hashlib
 import json
 import re
 import tomllib
@@ -122,6 +124,31 @@ def contract_warnings(contract: Contract) -> list[str]:
         for item in contract.items
         if not item.anchors and item.done_when is None
     ]
+
+
+def approval_hash(contract: Contract) -> str:
+    """Return the SHA-256 fingerprint of what the owner approves (FR-CON-02).
+
+    The JSON has sorted keys and no spacing between elements. Text inside values is left exactly
+    as written, because tidying it could change what a done_when command does without breaking
+    the approval. Changing these bytes, or the fields of the models they hold, invalidates every
+    existing approval.
+    """
+    canonical = msgspec.json.encode(
+        {
+            "approved_extras": contract.approved_extras,
+            "items": contract.items,
+            "paths": contract.paths,
+            "summary": contract.summary,
+        },
+        order="sorted",
+    )
+    return f"sha256:{hashlib.sha256(canonical).hexdigest()}"
+
+
+def approval_matches(contract: Contract) -> bool:
+    """Return whether the contract is signed and unchanged since it was signed (FR-CON-03)."""
+    return contract.approval is not None and contract.approval.hash == approval_hash(contract)
 
 
 def contract_json_schema() -> dict[str, object]:
