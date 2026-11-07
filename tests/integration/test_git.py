@@ -96,3 +96,168 @@ def test_missing_git_is_a_git_error(repo: Path, monkeypatch: pytest.MonkeyPatch)
 
     with pytest.raises(GitError, match="cannot be found"):
         Git(repo).head()
+
+
+# The baseline service (spec 7.1, 7.2 step 4). M2 acceptance: fixture repos with
+# untracked files and renames.
+
+BIG = "".join(f"line {number}\n" for number in range(40))
+
+
+def _changes(repo: Path, baseline: str) -> list[tuple[str, str, str | None]]:
+    return [(c.path, c.status, c.old_path) for c in Git(repo).changed_files(baseline)]
+
+
+def test_clean_tree_has_no_changed_files(repo: Path) -> None:
+    """Spec 7.2 step 4: nothing changed since the baseline."""
+    assert Git(repo).changed_files(Git(repo).head()) == []
+
+
+def test_each_kind_of_change_is_listed(repo: Path) -> None:
+    """Spec 7.2 step 4: modified, deleted, untracked and staged new files, sorted by path."""
+    baseline = Git(repo).head()
+    (repo / "src/auth/a.py").write_text("x = 2\n", encoding="utf-8")
+    (repo / "src/auth/gone.py").unlink()
+    (repo / "src/auth/untracked.py").write_text("y = 1\n", encoding="utf-8")
+    (repo / "src/auth/staged.py").write_text("z = 1\n", encoding="utf-8")
+    _git(repo, "add", "src/auth/staged.py")
+
+    assert _changes(repo, baseline) == [
+        ("src/auth/a.py", "modified", None),
+        ("src/auth/gone.py", "deleted", None),
+        ("src/auth/staged.py", "added", None),
+        ("src/auth/untracked.py", "added", None),
+    ]
+
+
+def test_commits_made_after_the_baseline_count(repo: Path) -> None:
+    """Spec 7.2 step 4: the baseline is a commit, so later commits are part of the change."""
+    baseline = Git(repo).head()
+    (repo / "src/auth/a.py").write_text("x = 2\n", encoding="utf-8")
+    (repo / "src/auth/later.py").write_text("y = 1\n", encoding="utf-8")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-q", "-m", "second")
+
+    assert _changes(repo, baseline) == [
+        ("src/auth/a.py", "modified", None),
+        ("src/auth/later.py", "added", None),
+    ]
+
+
+def test_ignored_files_are_not_listed(repo: Path) -> None:
+    """Spec 7.2 step 4: untracked files count only if git does not ignore them."""
+    baseline = Git(repo).head()
+    (repo / ".git/info/exclude").write_text("*.log\n", encoding="utf-8")
+    (repo / "debug.log").write_text("noise\n", encoding="utf-8")
+
+    assert _changes(repo, baseline) == []
+
+
+@pytest.mark.parametrize("stage", [False, True], ids=["plain-mv", "git-mv"])
+def test_moved_file_is_a_rename(repo: Path, stage: bool) -> None:
+    """Spec 7.2 step 4: a move is a rename even if git was never told about it."""
+    (repo / "src/auth/big.py").write_text(BIG, encoding="utf-8")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-q", "-m", "big")
+    baseline = Git(repo).head()
+    if stage:
+        _git(repo, "mv", "src/auth/big.py", "src/moved.py")
+    else:
+        (repo / "src/auth/big.py").rename(repo / "src/moved.py")
+
+    assert _changes(repo, baseline) == [("src/moved.py", "renamed", "src/auth/big.py")]
+
+
+def test_moved_and_edited_file_is_still_a_rename(repo: Path) -> None:
+    """Spec 7.2 step 4: a small edit during a move keeps the pairing (git's 50% rule)."""
+    (repo / "src/auth/big.py").write_text(BIG, encoding="utf-8")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-q", "-m", "big")
+    baseline = Git(repo).head()
+    (repo / "src/auth/big.py").unlink()
+    (repo / "src/moved.py").write_text(BIG + "extra\n", encoding="utf-8")
+
+    assert _changes(repo, baseline) == [("src/moved.py", "renamed", "src/auth/big.py")]
+
+
+def test_unrelated_delete_and_new_file_are_not_paired(repo: Path) -> None:
+    """Spec 7.2 step 4: different contents stay a deletion and an addition."""
+    baseline = Git(repo).head()
+    (repo / "src/auth/gone.py").unlink()
+    (repo / "src/auth/fresh.py").write_text(BIG, encoding="utf-8")
+
+    assert _changes(repo, baseline) == [
+        ("src/auth/fresh.py", "added", None),
+        ("src/auth/gone.py", "deleted", None),
+    ]
+
+
+def test_unusual_names_come_back_exactly(repo: Path) -> None:
+    """Spec 7.2 step 4: spaces, accents and glob characters are plain names, not patterns."""
+    baseline = Git(repo).head()
+    names = [f"src/a file {chr(0xE9)}.py", "src/[x].py", "src/-dash.py"]
+    for name in names:
+        (repo / name).write_text("x = 1\n", encoding="utf-8")
+
+    assert _changes(repo, baseline) == [(name, "added", None) for name in sorted(names)]
+
+
+def test_paths_are_from_the_top_even_inside_a_subfolder(repo: Path) -> None:
+    """Spec 7.2 step 4: the answer does not depend on where the command runs."""
+    baseline = Git(repo).head()
+    (repo / "src/auth/a.py").write_text("x = 2\n", encoding="utf-8")
+    (repo / "other/new.py").write_text("y = 1\n", encoding="utf-8")
+
+    assert _changes(repo / "src/auth", baseline) == [
+        ("other/new.py", "added", None),
+        ("src/auth/a.py", "modified", None),
+    ]
+
+
+def test_real_index_and_object_store_are_untouched(repo: Path) -> None:
+    """NFR-08: listing changes stores no file contents and leaves the owner's staging alone."""
+    baseline = Git(repo).head()
+    (repo / "src/auth/a.py").write_text("x = 2\n", encoding="utf-8")
+    (repo / "src/auth/private.txt").write_text("not for git\n", encoding="utf-8")
+    index_before = (repo / ".git/index").read_bytes()
+    objects_before = sorted((repo / ".git/objects").rglob("*"))
+
+    Git(repo).changed_files(baseline)
+
+    assert (repo / ".git/index").read_bytes() == index_before
+    assert _git(repo, "status", "--porcelain") == "M src/auth/a.py\n?? src/auth/private.txt"
+    new_objects = sorted(set((repo / ".git/objects").rglob("*")) - set(objects_before))
+    # git's shared empty-file object marks "will be added later"; nothing else may appear.
+    assert [p.parent.name + p.name for p in new_objects if p.is_file()] in (
+        [],
+        ["e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"],
+    )
+
+
+def test_unknown_baseline_is_a_git_error(repo: Path) -> None:
+    """Spec 13.3: a baseline commit that no longer exists is an environment error."""
+    with pytest.raises(GitError, match="baseline commit still exists"):
+        Git(repo).changed_files("0" * 40)
+
+
+def test_baseline_content_is_the_old_bytes(repo: Path) -> None:
+    """Spec 7.1: old contents come from git, byte for byte, even after the file changed."""
+    data = bytes(range(256))
+    (repo / "src/auth/blob.bin").write_bytes(data)
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-q", "-m", "binary")
+    baseline = Git(repo).head()
+    (repo / "src/auth/blob.bin").write_bytes(b"new")
+    (repo / "src/auth/a.py").unlink()
+
+    assert Git(repo).baseline_content(baseline, "src/auth/blob.bin") == data
+    assert Git(repo / "other").baseline_content(baseline, "src/auth/a.py") == b"x = 1\n"
+
+
+def test_baseline_content_of_a_new_file_is_a_git_error(repo: Path) -> None:
+    """Spec 7.1: an added file has no baseline version."""
+    baseline = Git(repo).head()
+    (repo / "src/auth/new.py").write_text("y = 1\n", encoding="utf-8")
+
+    with pytest.raises(GitError, match="existed at the baseline"):
+        Git(repo).baseline_content(baseline, "src/auth/new.py")
