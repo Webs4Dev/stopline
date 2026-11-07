@@ -738,7 +738,7 @@ trust(part_id TEXT PRIMARY KEY, approval_hash TEXT, status TEXT, baseline TEXT,
 - WAL mode, `busy_timeout = 2000` ms; safe for concurrent hook processes.
 - Migrations are forward-only, numbered, applied on open. A corrupt or incompatible database is renamed aside and rebuilt (it holds derived data, history and trust records). After a rebuild every part is untrusted until the owner runs `stopline trust` (FR-CON-08).
 - Cache eviction: entries whose `last_used` is more than 30 days old, then the least recently used entries while the total size of `features` is over 200 MB.
-- The working-tree hash is `git write-tree` on a temporary index including untracked files but excluding `.stopline/`, so it is exact and cheap and Stopline's own writes never change it.
+- The working-tree hash is `git write-tree` on a temporary index including untracked files but excluding `.stopline/` and secret deny-list matches, so it is exact and cheap, Stopline's own writes never change it, and secrets are never read or stored (NFR-08). Editing only a secret file therefore does not change the hash.
 
 ### 15.3 Report format (JSON)
 
@@ -1187,5 +1187,6 @@ Agent:  builds; Stopline checks every turn; part completes; agent asks what is n
 | 2026-11-06 | 2.1 | 13.1: `part keep` gains `--part ID`. | After a part completes nothing is active, yet that is when the owner is asked to keep or revert (12.1, Appendix A). Reopening the part just to keep a feature would be wrong. |
 | 2026-11-06 | 2.1 | FR-CON-09, 17.2: only `part approve` and `stopline trust` may create or replace a trust record; other commands require a matching record first. | An agent can run `part start` and `part keep`. If they wrote the record themselves, a contract from a stranger could become trusted, and its done_when commands could run, without the owner seeing it. Owner decision. |
 | 2026-11-07 | 2.1 | 15.2: `feature_cache` gains `last_used`, updated on a hit at most once a day; eviction wording says how "unused" and "total size" are measured. | Eviction of entries unused for 30 days needs a record of when each entry was last used, and the table had none. Owner decision (option A). |
+| 2026-11-07 | 2.1 | 15.2: the tree hash also leaves out secret deny-list matches. The built-in deny-list is the section 14 defaults. | Adding a file to the temporary index reads it and stores a copy in git, which NFR-08 forbids for secrets (open question 5). Owner decision. |
 
 Note: `stopline-diagrams.pdf` was not regenerated and still shows spec v2.0. The Mermaid source in this file is current, and where they differ this file wins.
