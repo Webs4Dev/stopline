@@ -4,7 +4,7 @@ CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT);
 
 CREATE TABLE feature_cache(
     blob_sha TEXT, extractor TEXT, queries TEXT, path TEXT,
-    features BLOB,
+    features BLOB, last_used TEXT,
     PRIMARY KEY (blob_sha, extractor, queries)
 );
 

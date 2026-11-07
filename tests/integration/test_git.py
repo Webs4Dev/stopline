@@ -261,3 +261,97 @@ def test_baseline_content_of_a_new_file_is_a_git_error(repo: Path) -> None:
 
     with pytest.raises(GitError, match="existed at the baseline"):
         Git(repo).baseline_content(baseline, "src/auth/new.py")
+
+
+# Secret files (NFR-08) and the tree hash (spec 15.2).
+
+SECRET_NAMES = [".env", "config/.ENV.local", "deploy/server.pem", "credentials.json"]
+
+
+def _write_secrets(repo: Path) -> None:
+    for name in SECRET_NAMES:
+        (repo / name).parent.mkdir(parents=True, exist_ok=True)
+        (repo / name).write_text(f"value of {name}\n", encoding="utf-8")
+
+
+def _stored(repo: Path, name: str) -> bool:
+    """Whether git's object store holds this file's current contents."""
+    sha = _git(repo, "hash-object", "--", name)  # without -w: computes, stores nothing
+    command = ["git", "cat-file", "-e", sha]
+    exists = subprocess.run(command, cwd=repo, check=False)  # noqa: S603
+    return exists.returncode == 0
+
+
+def test_secret_files_are_never_listed(repo: Path) -> None:
+    """NFR-08: untracked and tracked secret files stay out of the changed files."""
+    (repo / "keys").mkdir()
+    (repo / "keys/id_rsa").write_text("old\n", encoding="utf-8")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-q", "-m", "a committed key")
+    baseline = Git(repo).head()
+    (repo / "keys/id_rsa").write_text("new\n", encoding="utf-8")
+    _write_secrets(repo)
+
+    assert _changes(repo, baseline) == []
+
+
+def test_clean_tree_hash_is_the_commit_tree(repo: Path) -> None:
+    """Spec 15.2: with nothing changed, the hash is exactly the tree git already has."""
+    assert Git(repo).tree_hash() == _git(repo, "rev-parse", "HEAD^{tree}")
+
+
+def test_tree_hash_changes_with_every_kind_of_change(repo: Path) -> None:
+    """Spec 15.2: edits, new untracked files and deletions all give a new hash."""
+    seen = {Git(repo).tree_hash()}
+    (repo / "src/auth/a.py").write_text("x = 2\n", encoding="utf-8")
+    seen.add(Git(repo).tree_hash())
+    (repo / "src/auth/untracked.py").write_text("y = 1\n", encoding="utf-8")
+    seen.add(Git(repo).tree_hash())
+    (repo / "other/b.py").unlink()
+    seen.add(Git(repo).tree_hash())
+
+    assert len(seen) == 4
+
+
+def test_tree_hash_is_stable_and_the_same_from_a_subfolder(repo: Path) -> None:
+    """Spec 15.2: an unchanged tree gives the same hash wherever it is asked."""
+    (repo / "src/auth/untracked.py").write_text("y = 1\n", encoding="utf-8")
+
+    assert Git(repo).tree_hash() == Git(repo / "src/auth").tree_hash() == Git(repo).tree_hash()
+
+
+def test_tree_hash_ignores_stopline_ignored_and_secret_files(repo: Path) -> None:
+    """Spec 15.2 and NFR-08: Stopline's own files, ignored files and secrets do not count."""
+    before = Git(repo).tree_hash()
+    (repo / ".stopline/parts").mkdir(parents=True)
+    (repo / ".stopline/parts/p.toml").write_text("id = 'p'\n", encoding="utf-8")
+    (repo / ".git/info/exclude").write_text("*.log\n", encoding="utf-8")
+    (repo / "debug.log").write_text("noise\n", encoding="utf-8")
+    _write_secrets(repo)
+
+    assert Git(repo).tree_hash() == before
+
+
+def test_tracked_stopline_and_secret_files_are_left_out_of_the_tree_hash(repo: Path) -> None:
+    """Spec 15.2: committed contracts and committed secrets are excluded too."""
+    clean = Git(repo).tree_hash()
+    (repo / ".stopline").mkdir()
+    (repo / ".stopline/x.toml").write_text("id = 'x'\n", encoding="utf-8")
+    (repo / ".env").write_text("A=1\n", encoding="utf-8")
+    _git(repo, "add", "-f", ".")
+    _git(repo, "commit", "-q", "-m", "tracked extras")
+
+    assert Git(repo).tree_hash() == clean
+
+
+def test_tree_hash_never_stores_secrets_or_touches_the_index(repo: Path) -> None:
+    """NFR-08: secrets are not copied into git; the owner's staging is unchanged."""
+    _write_secrets(repo)
+    (repo / "src/auth/new.py").write_text("y = 1\n", encoding="utf-8")
+    index_before = (repo / ".git/index").read_bytes()
+
+    Git(repo).tree_hash()
+
+    assert (repo / ".git/index").read_bytes() == index_before
+    assert _stored(repo, "src/auth/new.py")  # ordinary files are stored, as write-tree needs
+    assert not any(_stored(repo, name) for name in SECRET_NAMES)

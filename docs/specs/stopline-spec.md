@@ -720,6 +720,7 @@ hook_budget_ms    = 1500            # exceed -> warning in ledger, never a failu
 meta(key TEXT PRIMARY KEY, value TEXT)                 -- schema_version, created_at
 feature_cache(blob_sha TEXT, extractor TEXT, queries TEXT, path TEXT,
               features BLOB,  -- msgspec-encoded list[Feature]
+              last_used TEXT, -- updated on a cache hit at most once a day
               PRIMARY KEY (blob_sha, extractor, queries))
 part_index(part_id TEXT PRIMARY KEY, status TEXT, baseline TEXT,
            approval_hash TEXT, completed_tree TEXT, updated_at TEXT)
@@ -736,7 +737,7 @@ trust(part_id TEXT PRIMARY KEY, approval_hash TEXT, status TEXT, baseline TEXT,
 
 - WAL mode, `busy_timeout = 2000` ms; safe for concurrent hook processes.
 - Migrations are forward-only, numbered, applied on open. A corrupt or incompatible database is renamed aside and rebuilt (it holds derived data, history and trust records). After a rebuild every part is untrusted until the owner runs `stopline trust` (FR-CON-08).
-- Cache eviction: entries unused for 30 days, or total size over 200 MB.
+- Cache eviction: entries whose `last_used` is more than 30 days old, then the least recently used entries while the total size of `features` is over 200 MB.
 - The working-tree hash is `git write-tree` on a temporary index including untracked files but excluding `.stopline/`, so it is exact and cheap and Stopline's own writes never change it.
 
 ### 15.3 Report format (JSON)
@@ -1185,5 +1186,6 @@ Agent:  builds; Stopline checks every turn; part completes; agent asks what is n
 | 2026-11-06 | 2.1 | FR-CON-04, 12.1, Figure 5, 12.2, 13.1, 17.2, 17.3: an agent may run `part keep` once the owner allows it in the agent's permission prompt; the PreToolUse hook returns `ask` for it instead of `deny`. Codex still denies it. `review` added to the PreToolUse deny list, matching 13.1. | Owner decision: approving a feature in the agent session should not mean switching to a terminal. The prompt keeps the decision with the owner, whom a chat message alone cannot prove. |
 | 2026-11-06 | 2.1 | 13.1: `part keep` gains `--part ID`. | After a part completes nothing is active, yet that is when the owner is asked to keep or revert (12.1, Appendix A). Reopening the part just to keep a feature would be wrong. |
 | 2026-11-06 | 2.1 | FR-CON-09, 17.2: only `part approve` and `stopline trust` may create or replace a trust record; other commands require a matching record first. | An agent can run `part start` and `part keep`. If they wrote the record themselves, a contract from a stranger could become trusted, and its done_when commands could run, without the owner seeing it. Owner decision. |
+| 2026-11-07 | 2.1 | 15.2: `feature_cache` gains `last_used`, updated on a hit at most once a day; eviction wording says how "unused" and "total size" are measured. | Eviction of entries unused for 30 days needs a record of when each entry was last used, and the table had none. Owner decision (option A). |
 
 Note: `stopline-diagrams.pdf` was not regenerated and still shows spec v2.0. The Mermaid source in this file is current, and where they differ this file wins.

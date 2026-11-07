@@ -3,10 +3,13 @@ import os
 import shutil
 import subprocess
 import tempfile
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
+
+from stopline.security import deny_list
 
 Status = Literal["added", "modified", "deleted", "renamed"]
 
@@ -77,18 +80,23 @@ class Git:
         """List files that differ from the baseline commit, sorted by path (spec 7.2 step 4).
 
         Covers committed, staged and unstaged changes, and untracked files that are not
-        ignored. New files are added to a temporary copy of git's index as "intent to add",
-        so git can pair a plain `mv` into a rename. That stores no file contents, and the
-        real index is never changed.
+        ignored. Secret files are left out, so git never reads them either (NFR-08).
+        New files are added to a scratch copy of git's index as "intent to add", so git can
+        pair a plain `mv` into a rename. That stores no file contents.
         """
         top = self.root()
-        index = top / self._run("rev-parse", "--git-path", "index", cwd=top).strip()
-        with tempfile.TemporaryDirectory(prefix="stopline-") as folder:
-            env = {"GIT_INDEX_FILE": str(Path(folder) / "index"), "GIT_LITERAL_PATHSPECS": "1"}
-            if index.is_file():
-                shutil.copyfile(index, env["GIT_INDEX_FILE"])
+        no_secrets = deny_list.pathspecs(exclude=True)
+        with self._scratch_index(top) as env:
             untracked = self._call(
-                ["ls-files", "-z", "--others", "--exclude-standard", "--full-name"],
+                [
+                    "ls-files",
+                    "-z",
+                    "--others",
+                    "--exclude-standard",
+                    "--full-name",
+                    "--",
+                    *no_secrets,
+                ],
                 cwd=top,
                 env=env,
             )
@@ -96,22 +104,58 @@ class Git:
                 self._call(
                     ["add", "--intent-to-add", "--pathspec-from-file=-", "--pathspec-file-nul"],
                     cwd=top,
-                    env=env,
+                    env={**env, "GIT_LITERAL_PATHSPECS": "1"},  # names, not patterns
                     stdin=untracked,
                 )
             fix = "Check that the baseline commit still exists, for example with `git log`."
             output = self._call(
-                ["diff", "-z", "--name-status", "--no-relative", "-M", baseline, "--"],
+                ["diff", "-z", "--name-status", "--no-relative", "-M", baseline, "--", *no_secrets],
                 cwd=top,
                 env=env,
                 fix=fix,
             )
         return sorted(_parse_name_status(output), key=lambda changed: changed.path)
 
+    def tree_hash(self) -> str:
+        """Return one id for the whole working tree (spec section 15.2).
+
+        It is `git write-tree` on a scratch index holding every file that is not ignored,
+        tracked or not. `.stopline/` is left out, so Stopline's own writes never change it,
+        and so are secret files, which are never read (NFR-08). Unchanged files are not
+        read again, because the scratch index starts as a copy of the real one.
+        """
+        top = self.root()
+        with self._scratch_index(top) as env:
+            leave_out = [".stopline", *deny_list.pathspecs(exclude=False)]
+            self._call(
+                ["rm", "--cached", "-r", "-f", "-q", "--ignore-unmatch", "--", *leave_out],
+                cwd=top,
+                env=env,
+            )
+            self._call(
+                ["add", "--all", "--", ":(exclude).stopline", *deny_list.pathspecs(exclude=True)],
+                cwd=top,
+                env=env,
+            )
+            return self._call(["write-tree"], cwd=top, env=env).decode("ascii").strip()
+
     def baseline_content(self, baseline: str, path: str) -> bytes:
         """Return a file's exact bytes as they were at the baseline commit (spec section 7.1)."""
         fix = "Ask only for files that existed at the baseline: modified, deleted or renamed."
         return self._call(["cat-file", "blob", f"{baseline}:{path}"], fix=fix)
+
+    @contextmanager
+    def _scratch_index(self, top: Path) -> Iterator[dict[str, str]]:
+        """Yield git settings that point at a throwaway copy of the index.
+
+        The owner's real index, which holds what they staged, is never changed.
+        """
+        index = top / self._run("rev-parse", "--git-path", "index", cwd=top).strip()
+        with tempfile.TemporaryDirectory(prefix="stopline-") as folder:
+            scratch = Path(folder) / "index"
+            if index.is_file():
+                shutil.copyfile(index, scratch)
+            yield {"GIT_INDEX_FILE": str(scratch)}
 
     def _run(
         self,
