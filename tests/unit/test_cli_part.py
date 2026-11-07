@@ -570,3 +570,142 @@ def test_a_database_error_during_a_command_exits_5(
     assert result.exit_code == 5
     assert "disk I/O error" in result.output
     assert "delete .stopline/state.db" in result.output
+
+
+# `stopline trust` (FR-CON-09, spec 13.1).
+
+
+def _trust(*arguments: str, stdin: str | None = None) -> Result:
+    return runner.invoke(app, ["trust", *arguments], input=stdin)
+
+
+def _signed_in_another_clone(root: Path, part_id: str = "billing") -> Path:
+    """A signed contract with no trust record here, as after a fresh clone."""
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setenv("STOPLINE_ALLOW_NONINTERACTIVE", "1")
+        path = _draft(root, part_id)
+        assert _run("approve", part_id).exit_code == 0
+    _forget_trust(root)
+    return path
+
+
+def test_trust_shows_the_commands_then_trusts(repo: Path, owner: None) -> None:
+    """FR-CON-09: every done_when command is shown before the contract is trusted."""
+    _signed_in_another_clone(repo)
+
+    result = _trust()
+
+    assert result.exit_code == 0
+    assert result.output.index("runs: pytest -k 'a  b'") < result.output.index("Trusted: billing")
+    assert _run("start", "billing", "--allow-dirty").exit_code == 0
+
+
+@pytest.mark.parametrize(("answer", "trusted"), [("n\n", False), ("y\n", True)])
+def test_trust_at_a_terminal_asks_first(
+    repo: Path, owner: None, monkeypatch: pytest.MonkeyPatch, answer: str, trusted: bool
+) -> None:
+    """FR-CON-09: the owner decides after seeing the commands."""
+    path = _signed_in_another_clone(repo)
+    monkeypatch.setattr(part_module, "_is_terminal", lambda: True)
+
+    result = _trust(stdin=answer)
+
+    assert result.exit_code == 0
+    assert "Their `runs` commands may then run" in result.output
+    state = open_state(repo / ".stopline")
+    assert trust.is_trusted(state.connection, load_contract(path)) is trusted
+    state.connection.close()
+
+
+def test_an_agent_cannot_run_trust(repo: Path) -> None:
+    """FR-CON-09 and spec 17.3: trust is owner-only, so it needs a terminal."""
+    _signed_in_another_clone(repo)
+
+    result = _trust()
+
+    assert result.exit_code == 4
+    assert "only be run by the owner" in result.output
+
+
+def test_trust_refuses_a_contract_edited_since_approval(repo: Path, owner: None) -> None:
+    """FR-CON-03: trusting cannot approve edits; that is `part approve`'s job."""
+    path = _signed_in_another_clone(repo)
+    text = path.read_text(encoding="utf-8")
+    path.write_text(text.replace("Monthly subscriptions", "Everything"), encoding="utf-8")
+
+    result = _trust()
+
+    assert result.exit_code == 3
+    assert "stopline part approve billing" in result.output
+    assert _run("start", "billing", "--allow-dirty").exit_code == 3
+
+
+def test_trust_skips_drafts_and_trusts_only_named_parts(repo: Path, owner: None) -> None:
+    """Spec 13.1: IDs pick parts; a draft has nothing approved to trust."""
+    _signed_in_another_clone(repo, "first")
+    _signed_in_another_clone(repo, "second")
+    _draft(repo, "third")
+
+    assert "Skipped third: it is a draft" in _trust().output
+    _forget_trust(repo)
+    result = _trust("second")
+
+    assert result.exit_code == 0
+    assert "Trusted: second" in result.output
+    assert "first" not in result.output
+    assert _run("start", "first", "--allow-dirty").exit_code == 3
+
+
+def test_trust_with_base_skips_contracts_changed_since_then(repo: Path, owner: None) -> None:
+    """Spec 12.3: CI trusts only contracts unchanged from the base, so a PR cannot run its own."""
+    _signed_in_another_clone(repo, "kept")
+    changed = _signed_in_another_clone(repo, "changed")
+    _git(repo, "add", ".stopline")
+    _git(repo, "commit", "-q", "-m", "contracts")
+    _git(repo, "tag", "base")
+    # The pull request edits one contract, re-signs it, and adds a new one.
+    text = changed.read_text(encoding="utf-8")
+    changed.write_text(text.replace("Monthly subscriptions", "Run anything"), encoding="utf-8")
+    assert _run("approve", "changed").exit_code == 0
+    _signed_in_another_clone(repo, "added")
+    _forget_trust(repo)
+
+    result = _trust("--base", "base")
+
+    assert result.exit_code == 0
+    assert "Trusted: kept" in result.output
+    assert "Not trusted: changed changed since base." in result.output
+    assert "Not trusted: added changed since base." in result.output
+    assert "Run anything" not in result.output
+
+
+def test_trust_with_an_unknown_base_is_an_environment_error(repo: Path, owner: None) -> None:
+    """Spec 13.3: a base git cannot find is an environment error, not "nothing changed"."""
+    _signed_in_another_clone(repo)
+
+    result = _trust("--base", "--not-a-ref")
+
+    assert result.exit_code == 5
+    assert "fetch it first" in result.output
+
+
+def test_trust_refuses_a_contract_changed_during_review(
+    repo: Path, owner: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FR-CON-09: what gets trusted is exactly what the owner saw."""
+    path = _signed_in_another_clone(repo)
+    monkeypatch.setattr(part_module, "_is_terminal", lambda: True)
+
+    def edit_while_reviewing(*arguments: object, **options: object) -> bool:
+        path.write_text(path.read_text(encoding="utf-8") + "# edited\n", encoding="utf-8")
+        return True
+
+    monkeypatch.setattr(typer, "confirm", edit_while_reviewing)
+
+    result = _trust()
+
+    assert result.exit_code == 3
+    assert "changed while you were reviewing" in result.output
+    state = open_state(repo / ".stopline")
+    assert trust.read_record(state.connection, "billing") is None
+    state.connection.close()

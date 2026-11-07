@@ -262,6 +262,79 @@ def abandon(part_id: PartIdArgument) -> None:
         typer.echo(f"Abandoned: {part_id}")
 
 
+def trust(
+    part_ids: Annotated[
+        list[str] | None,
+        typer.Argument(metavar="[ID]...", help="The parts to trust. Default: all of them."),
+    ] = None,
+    base: Annotated[
+        str | None,
+        typer.Option(
+            "--base", metavar="REF", help="Trust only contracts unchanged since this commit (CI)."
+        ),
+    ] = None,
+) -> None:
+    """Trust contracts in this copy of the project, after showing what they run. Owner only.
+
+    Needed after a fresh clone, a rebuilt database, or a merge of someone else's contracts
+    (FR-CON-09). With --base, a contract changed since REF is left untrusted, so a pull
+    request cannot get its own commands run.
+    """
+    with _friendly_errors():
+        require_owner("trust")
+        git, parts_dir = _git(), _parts_dir()
+        if part_ids:
+            paths = [part_path(parts_dir, part_id) for part_id in part_ids]
+        else:
+            paths = sorted(parts_dir.glob("*.toml"))
+        base_commit = git.commit(base) if base is not None else None
+
+        reviewed: list[tuple[Path, str]] = []
+        for path in paths:
+            contract, text = load_with_text(path)
+            if contract.approval is None:
+                typer.echo(f"Skipped {contract.id}: it is a draft. Approve it with `part approve`.")
+                continue
+            if not approval_matches(contract):
+                problem = f"Part `{contract.id}` changed since it was approved."
+                fix = f"Review it, then run `stopline part approve {contract.id}`."
+                raise ContractError(path, problem, fix, field="approval")
+            if base_commit is not None and not _unchanged_since(git, base_commit, path):
+                typer.echo(f"Not trusted: {contract.id} changed since {_printable(base or '')}.")
+                continue
+            typer.echo("\n".join(_describe(contract)) + "\n")
+            reviewed.append((path, text))
+        if not reviewed:
+            typer.echo("Nothing to trust.")
+            return
+        if _is_terminal():
+            question = f"Trust these {len(reviewed)} part(s)? Their `runs` commands may then run."
+            if not typer.confirm(question):
+                typer.echo("Nothing trusted.")
+                return
+
+        trusted_by, now = git.user_name(), _now()
+        with _database() as db:
+            for path, text in reviewed:
+                with owner_change(db, path, trusted_by, now):
+                    if load_with_text(path)[1] != text:
+                        fix = "Run `stopline trust` again to review the new version."
+                        raise ContractError(
+                            path, "The contract changed while you were reviewing it.", fix
+                        )
+                typer.echo(f"Trusted: {path.stem}")
+
+
+def _unchanged_since(git: Git, commit: str, path: Path) -> bool:
+    """Whether the contract file is exactly as it was at the commit (line endings aside)."""
+    name = path.relative_to(git.root()).as_posix()
+    try:
+        old = git.baseline_content(commit, name)
+    except GitError:  # the file did not exist then
+        return False
+    return old.replace(b"\r\n", b"\n") == path.read_bytes().replace(b"\r\n", b"\n")
+
+
 @part_app.command()
 def keep(
     feature: Annotated[str, typer.Argument(help='The feature, such as "route:POST /login".')],

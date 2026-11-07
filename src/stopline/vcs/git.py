@@ -57,6 +57,12 @@ class Git:
         fix = "Make a first commit with `git commit`."
         return self._run("rev-parse", "--verify", "HEAD^{commit}", fix=fix).strip()
 
+    def commit(self, ref: str) -> str:
+        """Return the id of the commit a name such as `origin/main` points to."""
+        fix = f"Check the name, for example with `git log {ref}`, or fetch it first."
+        arguments = ("rev-parse", "--verify", "--end-of-options", f"{ref}^{{commit}}")
+        return self._run(*arguments, fix=fix).strip()
+
     def user_name(self) -> str:
         """Return the name git records for you, which Stopline records as the approver."""
         fix = 'Set it with `git config user.name "Your Name"`.'

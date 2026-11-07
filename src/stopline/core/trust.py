@@ -44,7 +44,7 @@ def differences(record: TrustRecord | None, contract: Contract) -> list[str]:
     An empty list means trusted. A missing record is untrusted too.
     """
     if record is None:
-        return ["no trust record in this copy of the project"]
+        return ["there is no trust record for it"]
     approval_hash, status, baseline = _state(contract)
     found = []
     if record.approval_hash != approval_hash:

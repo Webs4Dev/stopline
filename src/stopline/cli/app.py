@@ -1,4 +1,4 @@
-# Root of the `stopline` command-line interface: --version, `schema` and the `part` commands.
+# Root of the `stopline` command-line interface: --version, `schema`, `trust` and `part`.
 import sys
 from enum import StrEnum
 from typing import Annotated
@@ -6,7 +6,7 @@ from typing import Annotated
 import typer
 from typer._click.exceptions import UsageError
 
-from stopline.cli.part import part_app
+from stopline.cli.part import part_app, trust
 from stopline.core.contract import contract_json_schema_text
 from stopline.version import __version__
 
@@ -20,6 +20,7 @@ app = typer.Typer(
     add_completion=False,
 )
 app.add_typer(part_app, name="part")
+app.command()(trust)
 
 _REPORT_URL = "https://github.com/Webs4Dev/stopline/issues"
 
