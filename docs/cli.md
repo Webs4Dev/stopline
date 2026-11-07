@@ -17,6 +17,7 @@ Stopline is in early development, so this page lists only what works today. Run 
 | `stopline part pause` | Move the active part back to approved, keeping its baseline. | Owner |
 | `stopline part reopen ID` | Make a complete part active again. | Owner |
 | `stopline part abandon ID` | Retire a part that is not complete. It stays on disk for history. | Owner |
+| `stopline trust [ID...] [--base REF]` | Show contracts, including every command they may run, then trust them in this copy of the project. Without IDs it covers every signed part; drafts are skipped. With `--base REF` (for CI) only contracts unchanged since REF are trusted. | Owner |
 
 Part commands work from any folder inside a git repository.
 
@@ -31,6 +32,15 @@ Any part except a complete one can be abandoned. Only one part can be active at 
 
 If you edit an approved, active or complete contract, run `stopline part approve` again. It signs the new version and leaves the status and baseline as they were.
 
+## Trust records
+
+Contracts are shared through git, so anyone can write one. Before Stopline changes a contract, or runs its commands, the contract must match a trust record that only you can create. Trust records live in `.stopline/state.db`, which never goes into git.
+
+- `part approve` and `stopline trust` create or replace a trust record. Both are owner-only.
+- `part start`, `keep`, `pause`, `reopen` and `abandon` refuse a contract without a matching record, then update the record after the change.
+- A contract has no record after a fresh clone, after a merge brings in someone else's contract, or after `state.db` was damaged and rebuilt (Stopline warns you when that happens). Review it, then run `stopline trust`.
+- A contract whose `status` or `baseline` was edited by hand no longer matches its record. Run `stopline part approve` after checking the change.
+
 ## Owner-only commands
 
 These refuse to run without an interactive terminal, because an agent's shell does not have one. Scripts you control can set `STOPLINE_ALLOW_NONINTERACTIVE=1`.
@@ -39,7 +49,7 @@ These refuse to run without an interactive terminal, because an agent's shell do
 
 Stopline guards against accidental overbuilding. It is not a sandbox, and an agent with full shell access could get around any local tool, for example by setting that variable itself.
 
-An agent may run `part keep`, because you are meant to confirm it in the agent's own permission prompt. That prompt comes from Stopline's hook, which arrives in milestone M6. **Until then, and whenever the hooks are not installed or have failed, or the agent runs in a mode that skips permission prompts, such as Claude Code's `bypassPermissions`, nothing stops an agent running `part keep`.** It cannot sign other changes, because it refuses a contract edited since its last approval, and what it adds shows up in `git diff`.
+An agent may run `part keep`, because you are meant to confirm it in the agent's own permission prompt. That prompt comes from Stopline's hook, which arrives in milestone M6. **Until then, and whenever the hooks are not installed or have failed, or the agent runs in a mode that skips permission prompts, such as Claude Code's `bypassPermissions`, nothing stops an agent running `part keep`.** It cannot sign other changes, because it refuses a contract edited since its last approval or without a matching trust record, and what it adds shows up in `git diff`.
 
 ## Exit codes
 
@@ -48,7 +58,7 @@ An agent may run `part keep`, because you are meant to confirm it in the agent's
 | 0 | Success. |
 | 3 | Contract or configuration problem. |
 | 4 | Usage error, including an owner-only command run without a terminal. |
-| 5 | Environment problem: git is missing, this is not a repository, or git has no `user.name`. |
+| 5 | Environment problem: git is missing, this is not a repository, git has no `user.name`, a `--base` commit cannot be found, or `.stopline/state.db` cannot be used. |
 | 70 | Internal error, which is a bug. The message says where to report it. |
 
 Codes 1 and 2 are reserved for findings from `stopline check`, which arrives in a later milestone.

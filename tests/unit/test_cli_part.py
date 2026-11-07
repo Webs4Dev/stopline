@@ -709,3 +709,23 @@ def test_trust_refuses_a_contract_changed_during_review(
     state = open_state(repo / ".stopline")
     assert trust.read_record(state.connection, "billing") is None
     state.connection.close()
+
+
+def test_pause_with_nothing_active(repo: Path, owner: None) -> None:
+    """Spec section 8: there is nothing to pause, which is a contract problem (exit 3)."""
+    _draft(repo)
+
+    result = _run("pause")
+
+    assert result.exit_code == 3
+    assert "No part is active" in result.output
+
+
+def test_trust_with_only_drafts_trusts_nothing(repo: Path, owner: None) -> None:
+    """FR-CON-09: a draft has no approval to trust; the owner is told so."""
+    _draft(repo)
+
+    result = _trust()
+
+    assert result.exit_code == 0
+    assert result.output.endswith("Nothing to trust.\n")

@@ -92,7 +92,7 @@ Line numbers are a best-effort pointer. In a JSON draft every problem is reporte
 | Comments, spacing outside values, key order or line endings changed | Yes |
 | A default written out, such as `shell = false` | Yes |
 | `title` changed | Yes |
-| `status` or `baseline` changed | Yes. Local trust records will protect these from milestone M2. |
+| `status` or `baseline` changed | Yes, but the local trust record no longer matches, so Stopline refuses to work on the part until you run `stopline part approve` (see the CLI reference). |
 
 Text inside values is hashed exactly as written, because even a double space inside a command can change what it does.
 
