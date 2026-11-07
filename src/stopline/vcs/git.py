@@ -160,7 +160,9 @@ class Git:
         with tempfile.TemporaryDirectory(prefix="stopline-") as folder:
             scratch = Path(folder) / "index"
             if index.is_file():
-                shutil.copyfile(index, scratch)
+                # copy2 keeps the timestamp, which git compares with each file's to catch
+                # edits made in the same instant as the index was written ("racily clean").
+                shutil.copy2(index, scratch)
             yield {"GIT_INDEX_FILE": str(scratch)}
 
     def _run(

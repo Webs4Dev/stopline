@@ -1,4 +1,5 @@
 # Tests for the git helper against real repositories (spec section 8, `part start`).
+import os
 import subprocess
 from pathlib import Path
 
@@ -355,3 +356,24 @@ def test_tree_hash_never_stores_secrets_or_touches_the_index(repo: Path) -> None
     assert (repo / ".git/index").read_bytes() == index_before
     assert _stored(repo, "src/auth/new.py")  # ordinary files are stored, as write-tree needs
     assert not any(_stored(repo, name) for name in SECRET_NAMES)
+
+
+def test_edit_that_keeps_size_and_timestamp_is_still_seen(repo: Path) -> None:
+    """Spec 7.2 step 4 and 15.2: a same-size edit with an unchanged timestamp still counts.
+
+    Git spots such "racily clean" files by comparing them with the index file's own
+    timestamp, so the scratch copy of the index must keep that timestamp. A coarse clock,
+    as on Windows, makes this happen for real; here the timestamps are set by hand.
+    """
+    _git(repo, "config", "core.trustctime", "false")  # as on Windows, which has no ctime
+    target, index = repo / "src/auth/a.py", repo / ".git/index"
+    old = 1_577_836_800  # 2020-01-01, long before the index is written
+    os.utime(target, (old, old))
+    _git(repo, "update-index", "--refresh")  # the index now records the old timestamp
+    baseline, clean_tree = Git(repo).head(), Git(repo).tree_hash()
+    target.write_text("x = 2\n", encoding="utf-8")  # same size as "x = 1\n"
+    os.utime(target, (old, old))
+    os.utime(index, (old, old))
+
+    assert _changes(repo, baseline) == [("src/auth/a.py", "modified", None)]
+    assert Git(repo).tree_hash() != clean_tree
