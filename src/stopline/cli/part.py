@@ -1,6 +1,7 @@
 # The `stopline part` commands (spec section 13.1). The rules live in core/; this file reads the
 # arguments, prints results, and turns errors into exit codes (spec section 13.3).
 import shlex
+import sqlite3
 import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -31,7 +32,9 @@ from stopline.core.lifecycle import (
     require_owner,
     start_part,
 )
-from stopline.core.models import Contract, DoneWhenCommand
+from stopline.core.models import Contract, DoneWhenCommand, Status
+from stopline.core.trust import owner_change, trusted_change
+from stopline.store.db import StateError, open_state
 from stopline.vcs.git import Git, GitError
 
 part_app = typer.Typer(help="Create parts and move them through their stages.")
@@ -50,9 +53,35 @@ def _friendly_errors() -> Iterator[None]:
     except OwnerOnlyError as err:
         typer.echo(str(err), err=True)
         raise typer.Exit(4) from None
-    except GitError as err:
+    except (GitError, StateError) as err:
         typer.echo(str(err), err=True)
         raise typer.Exit(5) from None
+    except sqlite3.Error as err:
+        # open_state replaces a database found damaged when opening; this is damage found later.
+        typer.echo(
+            f"Stopline's local database, .stopline/state.db, cannot be used: {err}.\n"
+            "  Fix: Try again. If it keeps failing, delete .stopline/state.db (it is rebuilt), "
+            "then run `stopline trust` for your parts.",
+            err=True,
+        )
+        raise typer.Exit(5) from None
+
+
+@contextmanager
+def _database() -> Iterator[sqlite3.Connection]:
+    """Open state.db, saying so if a damaged one had to be replaced (spec section 15.2)."""
+    state = open_state(_git().root() / ".stopline")
+    if state.set_aside is not None:
+        typer.echo(
+            f"Warning: .stopline/state.db was damaged and has been replaced; the old file is "
+            f"kept as {state.set_aside.name}. Every part is untrusted until you run "
+            "`stopline trust`.",
+            err=True,
+        )
+    try:
+        yield state.connection
+    finally:
+        state.connection.close()
 
 
 def _is_terminal() -> bool:
@@ -176,7 +205,9 @@ def approve(part_id: PartIdArgument) -> None:
             if load_with_text(path)[1] != reviewed:
                 fix = f"Run `stopline part approve {part_id}` again to review the new version."
                 raise ContractError(path, "The contract changed while you were reviewing it.", fix)
-        approve_part(path, _git().user_name(), _now())
+        now = _now()
+        with _database() as db, owner_change(db, path, _git().user_name(), now):
+            approve_part(path, _git().user_name(), now)
         typer.echo(f"Approved: {part_id}")
 
 
@@ -190,7 +221,9 @@ def start(
 ) -> None:
     """Make a part active and record the baseline."""
     with _friendly_errors():
-        start_part(part_path(_parts_dir(), part_id), _git(), _now(), allow_dirty=allow_dirty)
+        path, now = part_path(_parts_dir(), part_id), _now()
+        with _database() as db, trusted_change(db, path, now):
+            start_part(path, _git(), now, allow_dirty=allow_dirty)
         typer.echo(f"Active: {part_id}")
 
 
@@ -199,7 +232,12 @@ def pause() -> None:
     """Pause the active part. Owner only."""
     with _friendly_errors():
         require_owner("part pause")
-        typer.echo(f"Paused: {pause_part(_parts_dir())}")
+        parts_dir = _parts_dir()
+        active = [part for part in list_parts(parts_dir) if part.status is Status.ACTIVE]
+        if not active:
+            raise ContractError(parts_dir, "No part is active.", "There is nothing to pause.")
+        with _database() as db, trusted_change(db, part_path(parts_dir, active[0].id), _now()):
+            typer.echo(f"Paused: {pause_part(parts_dir)}")
 
 
 @part_app.command()
@@ -207,7 +245,9 @@ def reopen(part_id: PartIdArgument) -> None:
     """Make a complete part active again. Owner only."""
     with _friendly_errors():
         require_owner("part reopen")
-        reopen_part(part_path(_parts_dir(), part_id))
+        path = part_path(_parts_dir(), part_id)
+        with _database() as db, trusted_change(db, path, _now()):
+            reopen_part(path)
         typer.echo(f"Active: {part_id}")
 
 
@@ -216,7 +256,9 @@ def abandon(part_id: PartIdArgument) -> None:
     """Retire a part that is not complete. Owner only."""
     with _friendly_errors():
         require_owner("part abandon")
-        abandon_part(part_path(_parts_dir(), part_id))
+        path = part_path(_parts_dir(), part_id)
+        with _database() as db, trusted_change(db, path, _now()):
+            abandon_part(path)
         typer.echo(f"Abandoned: {part_id}")
 
 
@@ -248,6 +290,7 @@ def keep(
                 fix = "Name the part with `--part ID`."
                 raise ContractError(parts_dir, "No part is active to keep this in.", fix)
             part_id = active.id
-        path = part_path(parts_dir, part_id)
-        keep_feature(path, feature, reason, _git().user_name(), _now())
+        path, now = part_path(parts_dir, part_id), _now()
+        with _database() as db, trusted_change(db, path, now):
+            keep_feature(path, feature, reason, _git().user_name(), now)
         typer.echo(f"Kept in {part_id}: {_printable(feature)}")

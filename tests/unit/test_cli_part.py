@@ -1,5 +1,7 @@
 # Tests for the `stopline part` commands in a real git repository (spec sections 8, 13.1, 13.3).
+import sqlite3
 import subprocess
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -9,9 +11,10 @@ from typer.testing import CliRunner, Result
 from stopline.cli import app as app_module
 from stopline.cli import part as part_module
 from stopline.cli.app import app, main
+from stopline.core import trust
 from stopline.core.contract import approval_matches, load_contract
-from stopline.core.lifecycle import complete_part
 from stopline.core.models import Status
+from stopline.store.db import open_state
 
 runner = CliRunner()
 
@@ -71,6 +74,22 @@ def _active(root: Path, part_id: str = "billing") -> Path:
     assert _run("approve", part_id).exit_code == 0
     assert _run("start", part_id, "--allow-dirty").exit_code == 0
     return path
+
+
+def _complete(path: Path) -> None:
+    """Complete a part the way the end-of-turn check will (spec section 8)."""
+    state = open_state(path.parent.parent)
+    try:
+        trust.complete(state.connection, path, "0" * 40, datetime.now(UTC))
+    finally:
+        state.connection.close()
+
+
+def _active_as_owner(root: Path) -> Path:
+    """An active part set up by the owner; later commands run without the owner check."""
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setenv("STOPLINE_ALLOW_NONINTERACTIVE", "1")
+        return _active(root)
 
 
 def test_whole_journey(repo: Path, owner: None) -> None:
@@ -196,7 +215,7 @@ def test_keep_with_nothing_active(repo: Path, owner: None) -> None:
 def test_keep_in_a_completed_part_needs_no_reopen(repo: Path, owner: None) -> None:
     """Spec section 13.1: a feature is often kept just after its part completes (12.1)."""
     path = _active(repo)
-    complete_part(path)
+    _complete(path)
 
     result = _run("keep", "function:a.b", "--part", "billing", "--reason", "Helper")
 
@@ -210,7 +229,7 @@ def test_keep_in_a_completed_part_needs_no_reopen(repo: Path, owner: None) -> No
 def test_keep_can_name_a_part_that_is_not_the_active_one(repo: Path, owner: None) -> None:
     """Spec section 13.1: --part wins over the active part."""
     first = _active(repo, "first")
-    complete_part(first)
+    _complete(first)
     second = _active(repo, "second")
 
     assert _run("keep", "function:a.b", "--part", "first", "--reason", "Helper").exit_code == 0
@@ -359,7 +378,7 @@ def test_pause_reopen_and_abandon(repo: Path, owner: None) -> None:
     assert load_contract(path).status is Status.APPROVED
 
     assert _run("start", "billing", "--allow-dirty").exit_code == 0
-    complete_part(path)
+    _complete(path)
     assert _run("reopen", "billing").exit_code == 0
     assert load_contract(path).status is Status.ACTIVE
 
@@ -450,3 +469,104 @@ def test_unexpected_error_exits_70_and_says_where_to_report(
     captured = capsys.readouterr().err
     assert "boom" in captured
     assert "github.com/Webs4Dev/stopline/issues" in captured
+
+
+# Trust records through the real commands (FR-CON-08, FR-CON-09, spec 15.2).
+
+
+def _state_db(root: Path) -> Path:
+    return root / ".stopline" / "state.db"
+
+
+def _forget_trust(root: Path) -> None:
+    """What a fresh clone, or a contract arriving from another branch, looks like."""
+    state = open_state(root / ".stopline")
+    state.connection.execute("DELETE FROM trust")
+    state.connection.close()
+
+
+def test_start_refuses_a_contract_this_clone_never_trusted(repo: Path, owner: None) -> None:
+    """FR-CON-09: a signed contract from elsewhere cannot be started without the owner."""
+    path = _draft(repo)
+    assert _run("approve", "billing").exit_code == 0
+    _forget_trust(repo)
+    before = path.read_bytes()
+
+    result = _run("start", "billing", "--allow-dirty")
+
+    assert result.exit_code == 3
+    assert "not trusted" in result.output
+    assert "stopline part approve billing" in result.output
+    assert path.read_bytes() == before
+
+
+def test_an_agent_cannot_trust_a_contract_by_keeping_a_feature(repo: Path) -> None:
+    """FR-CON-09: `part keep` needs no terminal, so it must not create trust either."""
+    path = _active_as_owner(repo)
+    _forget_trust(repo)
+
+    result = _run("keep", "function:a.b", "--reason", "Helper")
+
+    assert result.exit_code == 3
+    assert not load_contract(path).approved_extras
+    assert _run("start", "billing", "--allow-dirty").exit_code == 3  # still untrusted
+
+
+def test_hand_edited_status_is_refused_until_the_owner_approves(repo: Path, owner: None) -> None:
+    """FR-CON-08: status is outside the approval hash, so the trust record catches the edit."""
+    path = _active(repo)
+    text = path.read_text(encoding="utf-8")
+    path.write_text(text.replace('status = "active"', 'status = "approved"'), encoding="utf-8")
+
+    refused = _run("abandon", "billing")
+    assert refused.exit_code == 3
+    assert "status (trusted: active, file: approved)" in refused.output
+
+    assert _run("approve", "billing").exit_code == 0
+    assert _run("abandon", "billing").exit_code == 0
+
+
+def test_every_contract_changing_command_keeps_trust(repo: Path, owner: None) -> None:
+    """FR-LC-01: after each Stopline command the file and the record still agree."""
+    path = _active(repo)
+    for arguments in (
+        ["keep", "function:a.b", "--reason", "Helper"],
+        ["pause"],
+        ["start", "billing"],
+        ["abandon", "billing"],
+    ):
+        assert _run(*arguments).exit_code == 0, arguments
+        state = open_state(repo / ".stopline")
+        assert trust.is_trusted(state.connection, load_contract(path)), arguments
+        state.connection.close()
+
+
+def test_a_damaged_database_is_replaced_with_a_warning(repo: Path, owner: None) -> None:
+    """Spec section 15.2: a rebuild leaves every part untrusted, and the owner is told."""
+    path = _active(repo)
+    _state_db(repo).write_bytes(b"not a database" * 100)
+
+    result = _run("keep", "function:a.b", "--reason", "Helper")
+
+    assert "was damaged and has been replaced" in result.output
+    assert "stopline trust" in result.output
+    assert result.exit_code == 3  # the new database holds no trust records
+    assert not load_contract(path).approved_extras
+
+
+def test_a_database_error_during_a_command_exits_5(
+    repo: Path, owner: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Spec section 13.3: a database that fails after opening is an environment error."""
+    _active(repo)
+
+    def failing(*arguments: object, **options: object) -> None:
+        raise sqlite3.OperationalError("disk I/O error")
+
+    monkeypatch.setattr(part_module, "trusted_change", failing)
+
+    result = _run("keep", "function:a.b", "--reason", "Helper")
+
+    assert result.exit_code == 5
+    assert "disk I/O error" in result.output
+    assert "delete .stopline/state.db" in result.output
